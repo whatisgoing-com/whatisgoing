@@ -1,0 +1,128 @@
+kind: pipeline
+type: docker
+name: core
+
+trigger:
+  branch: [main]
+  paths:
+    include:
+      - cmd/core/**
+      - go.mod
+      - go.sum
+
+steps:
+  - name: test
+    image: golang:1.25-alpine
+    commands:
+      - go build ./cmd/core/...
+      - go vet ./cmd/core/...
+
+  - name: build-and-push
+    image: plugins/docker
+    settings:
+      dockerfile: cmd/core/Dockerfile
+      context: .
+      registry:
+        from_secret: harbor_registry
+      repo:
+        from_secret: harbor_registry
+        suffix: /whatisgoing/core
+      username:
+        from_secret: harbor_username
+      password:
+        from_secret: harbor_password
+      tags:
+        - "${DRONE_COMMIT_SHA:0:8}"
+        - latest
+
+  - name: bump-gitops-tag
+    image: alpine/git
+    environment:
+      GITOPS_TOKEN:
+        from_secret: gitops_repo_token
+    commands:
+      - ./scripts/bump-gitops-tag.sh core "${DRONE_COMMIT_SHA:0:8}"
+
+---
+kind: pipeline
+type: docker
+name: ui
+
+trigger:
+  branch: [main]
+  paths:
+    include:
+      - cmd/ui/**
+      - go.mod
+      - go.sum
+
+steps:
+  - name: test
+    image: golang:1.25-alpine
+    commands:
+      - go build ./cmd/ui/...
+      - go vet ./cmd/ui/...
+
+  - name: build-and-push
+    image: plugins/docker
+    settings:
+      dockerfile: cmd/ui/Dockerfile
+      context: .
+      registry:
+        from_secret: harbor_registry
+      repo:
+        from_secret: harbor_registry
+        suffix: /whatisgoing/ui
+      username:
+        from_secret: harbor_username
+      password:
+        from_secret: harbor_password
+      tags:
+        - "${DRONE_COMMIT_SHA:0:8}"
+        - latest
+
+  - name: bump-gitops-tag
+    image: alpine/git
+    environment:
+      GITOPS_TOKEN:
+        from_secret: gitops_repo_token
+    commands:
+      - ./scripts/bump-gitops-tag.sh ui "${DRONE_COMMIT_SHA:0:8}"
+
+---
+kind: pipeline
+type: docker
+name: ner-sentiment
+
+trigger:
+  branch: [main]
+  paths:
+    include:
+      - services/ner-sentiment/**
+
+steps:
+  - name: build-and-push
+    image: plugins/docker
+    settings:
+      dockerfile: services/ner-sentiment/Dockerfile
+      context: services/ner-sentiment
+      registry:
+        from_secret: harbor_registry
+      repo:
+        from_secret: harbor_registry
+        suffix: /whatisgoing/ner-sentiment
+      username:
+        from_secret: harbor_username
+      password:
+        from_secret: harbor_password
+      tags:
+        - "${DRONE_COMMIT_SHA:0:8}"
+        - latest
+
+  - name: bump-gitops-tag
+    image: alpine/git
+    environment:
+      GITOPS_TOKEN:
+        from_secret: gitops_repo_token
+    commands:
+      - ./scripts/bump-gitops-tag.sh ner-sentiment "${DRONE_COMMIT_SHA:0:8}"

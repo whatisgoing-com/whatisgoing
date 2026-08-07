@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: whatisgoing
+      POSTGRES_PASSWORD: whatisgoing
+      POSTGRES_DB: whatisgoing
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.11
+    environment:
+      MEILI_MASTER_KEY: dev-master-key
+      MEILI_ENV: development
+    ports:
+      - "7700:7700"
+    volumes:
+      - meili-data:/meili_data
+
+  ner-sentiment:
+    build: ./services/ner-sentiment
+    ports:
+      - "8000:8000"
+
+  core:
+    build:
+      context: .
+      dockerfile: cmd/core/Dockerfile
+    environment:
+      CORE_PORT: "8080"
+      DATABASE_URL: postgres://whatisgoing:whatisgoing@postgres:5432/whatisgoing?sslmode=disable
+      MEILISEARCH_URL: http://meilisearch:7700
+      NER_SENTIMENT_URL: http://ner-sentiment:8000
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+      - meilisearch
+      - ner-sentiment
+
+  ui:
+    build:
+      context: .
+      dockerfile: cmd/ui/Dockerfile
+    environment:
+      UI_PORT: "8081"
+      CORE_API_URL: http://core:8080
+    ports:
+      - "8081:8081"
+    depends_on:
+      - core
+
+volumes:
+  postgres-data:
+  meili-data:
