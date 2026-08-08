@@ -112,18 +112,23 @@ type entityKey struct {
 	typ  string
 }
 
-// saveMentions upserts every distinct entity mentioned in the article,
-// writes one aggregated mentions row per (article, entity) — mention_count
-// and sentiment_score (averaged across that entity's occurrences) — and
-// records co-occurrence between every pair of distinct entities mentioned
-// in the article.
+// saveMentions upserts every distinct entity mentioned in the article and
+// writes one mentions row per (article, entity) — mention_count is always
+// 1 regardless of how many times the entity was mentioned within this one
+// article (that only affects sentiment_score, averaged across those
+// occurrences): a mention is "this entity appeared in this article", not
+// a count of in-article repetitions, so that rollups summing mention_count
+// across articles measure how many articles covered the entity rather than
+// letting one repetitive article dominate the ranking. It also records
+// co-occurrence between every pair of distinct entities mentioned in the
+// article.
 func (s *Store) saveMentions(ctx context.Context, articleID int64, mentions []ner.Mention) error {
 	if len(mentions) == 0 {
 		return nil
 	}
 
 	type aggregate struct {
-		count        int
+		occurrences  int
 		sentimentSum float64
 	}
 
@@ -141,7 +146,7 @@ func (s *Store) saveMentions(ctx context.Context, articleID int64, mentions []ne
 			aggregates[key] = a
 			order = append(order, key)
 		}
-		a.count++
+		a.occurrences++
 		a.sentimentSum += m.SentimentScore
 	}
 
@@ -154,12 +159,13 @@ func (s *Store) saveMentions(ctx context.Context, articleID int64, mentions []ne
 			return fmt.Errorf("upsert entity %s (%s): %w", key.name, key.typ, err)
 		}
 
-		sentiment := a.sentimentSum / float64(a.count)
+		sentiment := a.sentimentSum / float64(a.occurrences)
+		const mentionCount = 1
 		if _, err := s.pool.Exec(ctx, `
 			INSERT INTO mentions (article_id, entity_id, sentiment_score, mention_count)
 			VALUES ($1, $2, $3, $4)
 			ON CONFLICT (article_id, entity_id) DO UPDATE SET sentiment_score = $3, mention_count = $4`,
-			articleID, entityID, sentiment, a.count,
+			articleID, entityID, sentiment, mentionCount,
 		); err != nil {
 			return fmt.Errorf("save mention for entity %d: %w", entityID, err)
 		}
