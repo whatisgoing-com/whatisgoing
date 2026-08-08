@@ -1,0 +1,12 @@
+# Copy to configs/sources.yaml and replace with the real curated source
+# list. Schema is enforced by internal/core/config.LoadSources.
+sources:
+  - id: example-rss
+    name: Example RSS Source
+    url: https://example.com/rss.xml
+    type: rss # optional, defaults to rss
+
+  - id: example-html
+    name: Example HTML Source (no RSS feed)
+    url: https://example.com/news
+    type: html

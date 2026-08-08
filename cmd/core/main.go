@@ -10,9 +10,17 @@ import (
 	"time"
 
 	"github.com/whatisgoing-com/whatisgoing/internal/core/api"
+	"github.com/whatisgoing-com/whatisgoing/internal/core/config"
 	"github.com/whatisgoing-com/whatisgoing/internal/core/fetcher"
 	"github.com/whatisgoing-com/whatisgoing/internal/core/pipeline"
+	"github.com/whatisgoing-com/whatisgoing/internal/core/politeness"
 	"github.com/whatisgoing-com/whatisgoing/internal/core/scheduler"
+)
+
+const (
+	userAgent          = "whatisgoingbot/0.1 (+https://whatisgoing.com; contact: hello@whatisgoing.com)"
+	minDelayPerDomain  = 1500 * time.Millisecond
+	maxConcurrentFetch = 2
 )
 
 func main() {
@@ -24,10 +32,26 @@ func main() {
 		port = "8080"
 	}
 
+	sourcesPath := os.Getenv("SOURCES_CONFIG_PATH")
+	if sourcesPath == "" {
+		sourcesPath = "configs/sources.yaml"
+	}
+	sources, err := config.LoadSources(sourcesPath)
+	if err != nil {
+		log.Printf("no sources loaded from %s (%v) — ingestion will be a no-op until one is provided", sourcesPath, err)
+	}
+
+	politeClient := &http.Client{
+		Transport: politeness.NewTransport(nil, userAgent, minDelayPerDomain, maxConcurrentFetch),
+	}
+
 	coordinator := &pipeline.Coordinator{
-		Fetcher: noopFetcher{},
+		Fetcher: &fetcher.MultiFetcher{
+			RSS:  fetcher.NewRSSFetcher(politeClient),
+			HTML: fetcher.NewHTMLFetcher(politeClient, 25),
+		},
 		Store:   logStore{},
-		// Sources will be populated once source configuration lands (issue #2).
+		Sources: sources,
 	}
 
 	sched := &scheduler.Scheduler{
@@ -58,16 +82,7 @@ func main() {
 	}
 }
 
-// noopFetcher and logStore are temporary stand-ins so the pipeline is
-// wired and runnable before the real fetcher (issue #2) and Postgres-backed
-// store (issue #4) exist.
-
-type noopFetcher struct{}
-
-func (noopFetcher) Fetch(ctx context.Context, source fetcher.Source) ([]fetcher.Article, error) {
-	return nil, nil
-}
-
+// logStore is a temporary stand-in for the Postgres-backed store (issue #4).
 type logStore struct{}
 
 func (logStore) SaveArticles(ctx context.Context, articles []fetcher.Article) error {

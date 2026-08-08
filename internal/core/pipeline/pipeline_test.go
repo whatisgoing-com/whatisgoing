@@ -48,6 +48,25 @@ func TestCoordinatorRun_SavesFetchedArticles(t *testing.T) {
 	}
 }
 
+func TestCoordinatorRun_FiltersDuplicateDedupKeysAcrossSources(t *testing.T) {
+	f := &fakeFetcher{articles: []fetcher.Article{{Title: "same article", DedupKey: "shared-key"}}}
+	s := &fakeStore{}
+	c := &Coordinator{
+		Fetcher: f,
+		Store:   s,
+		// Two sources whose fetches happen to surface the same DedupKey.
+		Sources: []fetcher.Source{{Name: "src-a"}, {Name: "src-b"}},
+	}
+
+	if err := c.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if len(s.saved) != 1 {
+		t.Fatalf("expected duplicate DedupKey to be filtered, saved %d articles", len(s.saved))
+	}
+}
+
 func TestCoordinatorRun_ReturnsFetchError(t *testing.T) {
 	f := &fakeFetcher{err: errors.New("boom")}
 	c := &Coordinator{
