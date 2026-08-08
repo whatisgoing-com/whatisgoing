@@ -13,27 +13,36 @@ const layoutHeader = `<!doctype html>
 <html lang="en">
 <head>
 	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>whatisgoing.com</title>
 	<script src="https://unpkg.com/htmx.org@2.0.3"></script>
 	<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 	<style>
+		*, *::before, *::after { box-sizing: border-box; }
 		body { font-family: system-ui, sans-serif; max-width: 820px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
-		nav a { margin-right: 1rem; }
+		nav a { margin-right: 1rem; display: inline-block; padding: 0.4rem 0; }
 		table { border-collapse: collapse; width: 100%; }
 		th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #ddd; }
-		.tabs a { margin-right: 0.75rem; text-decoration: none; }
+		.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 1rem 0; }
+		.table-scroll table { min-width: 420px; }
+		.tabs a { margin-right: 0.75rem; text-decoration: none; display: inline-block; padding: 0.4rem 0.1rem; }
 		.tabs a.active { font-weight: bold; text-decoration: underline; }
 		.sentiment-positive { color: #1a7f37; }
 		.sentiment-negative { color: #b91c1c; }
 		ul { list-style: none; padding: 0; }
 		li { padding: 0.4rem 0; border-bottom: 1px solid #eee; }
 		.sentiment-overview { background: #f6f8fa; border-radius: 8px; padding: 0.75rem 1rem; margin: 1rem 0; }
-		.charts { display: flex; gap: 1.5rem; flex-wrap: wrap; margin: 1rem 0; }
-		.chart-box { flex: 1 1 320px; height: 260px; }
+		.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; margin: 1rem 0; }
+		.chart-box { height: 260px; min-width: 0; }
 		.entity-search { position: relative; margin: 1rem 0; }
-		.entity-search input { width: 100%; padding: 0.5rem; box-sizing: border-box; }
-		.entity-search-results { position: absolute; z-index: 10; background: #fff; border: 1px solid #ddd; width: 100%; box-sizing: border-box; }
+		.entity-search input { width: 100%; padding: 0.6rem; font-size: 1rem; }
+		.entity-search-results { position: absolute; z-index: 10; background: #fff; border: 1px solid #ddd; width: 100%; }
 		.entity-search-results li { padding: 0.4rem 0.6rem; }
+		@media (max-width: 480px) {
+			body { margin: 1rem auto; padding: 0 0.75rem; }
+			.charts { grid-template-columns: 1fr; }
+			.chart-box { height: 220px; }
+		}
 	</style>
 </head>
 <body>
@@ -78,9 +87,12 @@ var tmpl = template.Must(template.New("ui").Parse(`
 <div class="charts">
 	<div class="chart-box"><canvas id="bar-chart"></canvas></div>
 	<div class="chart-box"><canvas id="trend-chart"></canvas></div>
+	<div class="chart-box"><canvas id="sentiment-pie-chart"></canvas></div>
 </div>
 
+<div class="table-scroll">
 {{template "entityList" .Entities}}
+</div>
 
 <script>
 (function() {
@@ -107,6 +119,14 @@ var tmpl = template.Must(template.New("ui").Parse(`
 				y1: { type: 'linear', position: 'right', min: -1, max: 1, grid: { drawOnChartArea: false } }
 			}
 		}
+	});
+	new Chart(document.getElementById('sentiment-pie-chart'), {
+		type: 'pie',
+		data: {
+			labels: ['Positive', 'Neutral', 'Negative'],
+			datasets: [{ data: [chartData.sentimentPositive, chartData.sentimentNeutral, chartData.sentimentNegative], backgroundColor: ['#1a7f37', '#9ca3af', '#b91c1c'] }]
+		},
+		options: { maintainAspectRatio: false, plugins: { title: { display: true, text: 'Overall sentiment breakdown' } } }
 	});
 })();
 </script>
@@ -143,7 +163,11 @@ var tmpl = template.Must(template.New("ui").Parse(`
 {{define "entityContent"}}
 <p><a href="/">&larr; Trending</a></p>
 <h1>{{.Detail.Name}} <small>({{.Detail.Type}})</small></h1>
-<div class="chart-box"><canvas id="entity-trend-chart"></canvas></div>
+<div class="charts">
+	<div class="chart-box"><canvas id="entity-trend-chart"></canvas></div>
+	<div class="chart-box"><canvas id="entity-sentiment-pie-chart"></canvas></div>
+</div>
+<div class="table-scroll">
 <table>
 	<thead><tr><th>Date</th><th>Mentions</th><th>Sentiment</th></tr></thead>
 	<tbody>
@@ -156,6 +180,7 @@ var tmpl = template.Must(template.New("ui").Parse(`
 	{{end}}
 	</tbody>
 </table>
+</div>
 <script>
 (function() {
 	const chartData = {{.ChartDataJSON}};
@@ -170,11 +195,20 @@ var tmpl = template.Must(template.New("ui").Parse(`
 		},
 		options: {
 			maintainAspectRatio: false,
+			plugins: { title: { display: true, text: 'Mentions & sentiment over time' } },
 			scales: {
 				y: { type: 'linear', position: 'left', beginAtZero: true },
 				y1: { type: 'linear', position: 'right', min: -1, max: 1, grid: { drawOnChartArea: false } }
 			}
 		}
+	});
+	new Chart(document.getElementById('entity-sentiment-pie-chart'), {
+		type: 'pie',
+		data: {
+			labels: ['Positive', 'Neutral', 'Negative'],
+			datasets: [{ data: [chartData.sentimentPositive, chartData.sentimentNeutral, chartData.sentimentNegative], backgroundColor: ['#1a7f37', '#9ca3af', '#b91c1c'] }]
+		},
+		options: { maintainAspectRatio: false, plugins: { title: { display: true, text: 'Sentiment breakdown (latest window)' } } }
 	});
 })();
 </script>
@@ -241,36 +275,19 @@ type sentimentSummary struct {
 	Average  float64
 }
 
-func summarizeSentiment(entities []coreclient.EntityRollup) sentimentSummary {
-	var s sentimentSummary
-	var total float64
-	for _, e := range entities {
-		switch {
-		case e.SentimentScore > 0:
-			s.Positive++
-		case e.SentimentScore < 0:
-			s.Negative++
-		default:
-			s.Neutral++
-		}
-		total += e.SentimentScore
-	}
-	if len(entities) > 0 {
-		s.Average = total / float64(len(entities))
-	}
-	return s
-}
-
 // trendingChartPayload is marshaled to JSON and injected verbatim into the
 // trending page's <script> block; json.Marshal HTML-escapes by default,
 // so this is safe even though it's built from entity names we don't
 // control.
 type trendingChartPayload struct {
-	Labels         []string  `json:"labels"`
-	MentionCounts  []int     `json:"mentionCounts"`
-	TrendLabels    []string  `json:"trendLabels"`
-	TrendMentions  []int     `json:"trendMentions"`
-	TrendSentiment []float64 `json:"trendSentiment"`
+	Labels            []string  `json:"labels"`
+	MentionCounts     []int     `json:"mentionCounts"`
+	TrendLabels       []string  `json:"trendLabels"`
+	TrendMentions     []int     `json:"trendMentions"`
+	TrendSentiment    []float64 `json:"trendSentiment"`
+	SentimentPositive int       `json:"sentimentPositive"`
+	SentimentNeutral  int       `json:"sentimentNeutral"`
+	SentimentNegative int       `json:"sentimentNegative"`
 }
 
 type trendingData struct {
@@ -280,7 +297,7 @@ type trendingData struct {
 	ChartDataJSON template.JS
 }
 
-func buildTrendingData(window string, entities []coreclient.EntityRollup, overall []coreclient.OverallTrendPoint) trendingData {
+func buildTrendingData(window string, entities []coreclient.EntityRollup, overall []coreclient.OverallTrendPoint, breakdown coreclient.SentimentBreakdown) trendingData {
 	labels := make([]string, len(entities))
 	counts := make([]int, len(entities))
 	for i, e := range entities {
@@ -300,6 +317,7 @@ func buildTrendingData(window string, entities []coreclient.EntityRollup, overal
 	payload := trendingChartPayload{
 		Labels: labels, MentionCounts: counts,
 		TrendLabels: trendLabels, TrendMentions: trendMentions, TrendSentiment: trendSentiment,
+		SentimentPositive: breakdown.Positive, SentimentNeutral: breakdown.Neutral, SentimentNegative: breakdown.Negative,
 	}
 	b, err := json.Marshal(payload)
 	if err != nil {
@@ -307,18 +325,32 @@ func buildTrendingData(window string, entities []coreclient.EntityRollup, overal
 		b = []byte("{}")
 	}
 
+	// The average is the current window's real aggregate sentiment
+	// (already mention-count-weighted server-side), the same number the
+	// time-series chart's most recent point shows — not derived from
+	// only the top-N trending entities.
+	var average float64
+	if len(overall) > 0 {
+		average = overall[len(overall)-1].AvgSentiment
+	}
+
 	return trendingData{
-		Windows:       tabsFor(window),
-		Entities:      entities,
-		Sentiment:     summarizeSentiment(entities),
+		Windows:  tabsFor(window),
+		Entities: entities,
+		Sentiment: sentimentSummary{
+			Positive: breakdown.Positive, Neutral: breakdown.Neutral, Negative: breakdown.Negative, Average: average,
+		},
 		ChartDataJSON: template.JS(b),
 	}
 }
 
 type entityChartPayload struct {
-	Labels    []string  `json:"labels"`
-	Mentions  []int     `json:"mentions"`
-	Sentiment []float64 `json:"sentiment"`
+	Labels            []string  `json:"labels"`
+	Mentions          []int     `json:"mentions"`
+	Sentiment         []float64 `json:"sentiment"`
+	SentimentPositive int       `json:"sentimentPositive"`
+	SentimentNeutral  int       `json:"sentimentNeutral"`
+	SentimentNegative int       `json:"sentimentNegative"`
 }
 
 type entityPageData struct {
@@ -336,7 +368,15 @@ func buildEntityPageData(detail coreclient.EntityDetail) entityPageData {
 		sentiment[i] = p.SentimentScore
 	}
 
-	b, err := json.Marshal(entityChartPayload{Labels: labels, Mentions: mentions, Sentiment: sentiment})
+	payload := entityChartPayload{Labels: labels, Mentions: mentions, Sentiment: sentiment}
+	if n := len(detail.Trend); n > 0 {
+		latest := detail.Trend[n-1]
+		payload.SentimentPositive = latest.PositiveCount
+		payload.SentimentNeutral = latest.NeutralCount
+		payload.SentimentNegative = latest.NegativeCount
+	}
+
+	b, err := json.Marshal(payload)
 	if err != nil {
 		log.Printf("ui: marshal entity chart data: %v", err)
 		b = []byte("{}")

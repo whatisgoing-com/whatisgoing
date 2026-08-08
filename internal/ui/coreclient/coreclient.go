@@ -19,6 +19,9 @@ type EntityRollup struct {
 	MentionCount   int     `json:"mention_count"`
 	SentimentScore float64 `json:"sentiment_score"`
 	WindowStart    string  `json:"window_start"`
+	PositiveCount  int     `json:"positive_count"`
+	NeutralCount   int     `json:"neutral_count"`
+	NegativeCount  int     `json:"negative_count"`
 }
 
 type EntityDetail struct {
@@ -46,6 +49,12 @@ type EntitySummary struct {
 	ID   int64  `json:"id"`
 	Name string `json:"name"`
 	Type string `json:"type"`
+}
+
+type SentimentBreakdown struct {
+	Positive int `json:"positive"`
+	Neutral  int `json:"neutral"`
+	Negative int `json:"negative"`
 }
 
 type Client struct {
@@ -130,6 +139,18 @@ func (c *Client) SearchEntities(ctx context.Context, query string, limit int) ([
 	var out []EntitySummary
 	if err := c.get(ctx, "/api/entities?"+q.Encode(), &out); err != nil {
 		return nil, fmt.Errorf("search entities: %w", err)
+	}
+	return out, nil
+}
+
+// SentimentBreakdown returns the real positive/neutral/negative mention
+// count breakdown across every entity for the current window bucket, for
+// the dashboard's sentiment pie chart.
+func (c *Client) SentimentBreakdown(ctx context.Context, window string) (SentimentBreakdown, error) {
+	q := url.Values{"window": {window}}
+	var out SentimentBreakdown
+	if err := c.get(ctx, "/api/sentiment?"+q.Encode(), &out); err != nil {
+		return SentimentBreakdown{}, fmt.Errorf("get sentiment breakdown: %w", err)
 	}
 	return out, nil
 }

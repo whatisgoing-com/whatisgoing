@@ -43,6 +43,9 @@ type EntityRollup struct {
 	WindowStart    time.Time
 	MentionCount   int
 	SentimentScore float64
+	PositiveCount  int
+	NeutralCount   int
+	NegativeCount  int
 }
 
 // OverallTrendPoint is one window_start's aggregate across every entity:
@@ -60,6 +63,15 @@ type EntitySummary struct {
 	ID   int64
 	Name string
 	Type string
+}
+
+// SentimentBreakdown is positive/neutral/negative mention counts summed
+// across every entity for one window_start — the home dashboard's overall
+// sentiment pie chart (issue #21).
+type SentimentBreakdown struct {
+	Positive int
+	Neutral  int
+	Negative int
 }
 
 // WindowStart returns the start of the window containing t, truncated the
