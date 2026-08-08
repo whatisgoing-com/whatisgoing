@@ -45,6 +45,23 @@ type EntityRollup struct {
 	SentimentScore float64
 }
 
+// OverallTrendPoint is one window_start's aggregate across every entity:
+// total mentions and average sentiment, for the home dashboard's
+// time-series chart (issue #19) — not per-entity, unlike EntityRollup.
+type OverallTrendPoint struct {
+	WindowStart   time.Time
+	TotalMentions int
+	AvgSentiment  float64
+}
+
+// EntitySummary is a lightweight entity identity, returned by entity name
+// search (issue #19) — no rollup data attached.
+type EntitySummary struct {
+	ID   int64
+	Name string
+	Type string
+}
+
 // WindowStart returns the start of the window containing t, truncated the
 // same way Postgres' date_trunc(unit, t) truncates it — in particular,
 // Week starts on Monday (ISO 8601), matching date_trunc's behavior.

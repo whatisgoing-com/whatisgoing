@@ -42,10 +42,14 @@ Run it locally against the compose stack: `docker compose run --rm rollup`.
 `core`'s internal JSON API (`internal/core/api`), consumed only by `cmd/ui`:
 
 - `GET /api/trending?window=day&limit=20` — most-mentioned entities in the current window (`day`/`week`/`month`/`year`).
+- `GET /api/trend/overall?window=day&limit=30` — aggregate mentions + average sentiment per window_start across every entity, for the home dashboard's time-series chart.
+- `GET /api/entities?q=...&limit=10` — find entities by a case-insensitive name substring match, for the dashboard's entity search bar.
 - `GET /api/entities/{id}?window=day` — an entity's detail + reputation trend at that window granularity. 404s if the entity doesn't exist or hasn't been through a rollup yet.
 - `GET /api/search?q=...&limit=20` — full-text article search via Meilisearch.
 
-`cmd/ui` is a Go + htmx BFF (`internal/ui/coreclient` is its HTTP client for the API above) that server-renders three pages: trending (with day/week/month/year tabs, htmx-swapped without a full reload), entity detail (mention history + sentiment trend table), and search (htmx-submitted, partial results swap). No auth/admin UI in v1 — read-only public dashboard.
+`cmd/ui` is a Go + htmx BFF (`internal/ui/coreclient` is its HTTP client for the API above) that server-renders three pages: trending, entity detail, and article search. No auth/admin UI in v1 — read-only public dashboard.
+
+The trending (home) page is the rich dashboard: a sentiment overview (positive/neutral/negative counts + average, computed from the window's top entities), a bar chart of top entities by mention count, and a time-series line chart of aggregate mentions/sentiment — all rendered with Chart.js (CDN, a rendering library rather than a SPA framework, so it doesn't conflict with the "Go + htmx, no JS framework" decision). Switching the day/week/month/year tab htmx-swaps the entire panel (overview + both charts + entity table) together via `hx-target`, so nothing goes stale relative to the others; Chart.js re-initializes because htmx evaluates `<script>` tags in swapped content. A debounced entity search bar (`hx-trigger="keyup changed delay:300ms"`) finds an entity by name and links straight to its detail page, which gets a matching trend line chart.
 
 ## Local development
 

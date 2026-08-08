@@ -110,6 +110,73 @@ func (s *RollupStore) ReputationTrend(ctx context.Context, entityID int64, windo
 	return scanEntityRollups(rows)
 }
 
+// OverallTrend returns the most recent limit window_starts' aggregate
+// across every entity — total mentions and mention-count-weighted average
+// sentiment — oldest first, for the home dashboard's time-series chart.
+func (s *RollupStore) OverallTrend(ctx context.Context, window rollup.Window, limit int) ([]rollup.OverallTrendPoint, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT window_start, total_mentions, avg_sentiment FROM (
+			SELECT
+				window_start,
+				SUM(mention_count) AS total_mentions,
+				SUM(sentiment_score * mention_count) / SUM(mention_count) AS avg_sentiment
+			FROM entity_rollups
+			WHERE window_kind = $1
+			GROUP BY window_start
+			ORDER BY window_start DESC
+			LIMIT $2
+		) recent
+		ORDER BY window_start ASC`,
+		string(window), limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query overall trend: %w", err)
+	}
+	defer rows.Close()
+
+	var results []rollup.OverallTrendPoint
+	for rows.Next() {
+		var p rollup.OverallTrendPoint
+		if err := rows.Scan(&p.WindowStart, &p.TotalMentions, &p.AvgSentiment); err != nil {
+			return nil, fmt.Errorf("scan overall trend point: %w", err)
+		}
+		results = append(results, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate overall trend: %w", err)
+	}
+	return results, nil
+}
+
+// SearchEntities finds entities by a case-insensitive name substring
+// match, for the dashboard's entity search bar.
+func (s *RollupStore) SearchEntities(ctx context.Context, query string, limit int) ([]rollup.EntitySummary, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, name, type FROM entities
+		WHERE name ILIKE '%' || $1 || '%'
+		ORDER BY name
+		LIMIT $2`,
+		query, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("search entities: %w", err)
+	}
+	defer rows.Close()
+
+	var results []rollup.EntitySummary
+	for rows.Next() {
+		var e rollup.EntitySummary
+		if err := rows.Scan(&e.ID, &e.Name, &e.Type); err != nil {
+			return nil, fmt.Errorf("scan entity summary: %w", err)
+		}
+		results = append(results, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate entity search results: %w", err)
+	}
+	return results, nil
+}
+
 func scanEntityRollups(rows pgx.Rows) ([]rollup.EntityRollup, error) {
 	var results []rollup.EntityRollup
 	for rows.Next() {

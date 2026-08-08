@@ -13,9 +13,11 @@ import (
 )
 
 type fakeRollups struct {
-	top   []rollup.EntityRollup
-	trend []rollup.EntityRollup
-	err   error
+	top          []rollup.EntityRollup
+	trend        []rollup.EntityRollup
+	overall      []rollup.OverallTrendPoint
+	entitySearch []rollup.EntitySummary
+	err          error
 }
 
 func (f *fakeRollups) TopEntities(ctx context.Context, window rollup.Window, windowStart time.Time, limit int) ([]rollup.EntityRollup, error) {
@@ -30,6 +32,20 @@ func (f *fakeRollups) ReputationTrend(ctx context.Context, entityID int64, windo
 		return nil, f.err
 	}
 	return f.trend, nil
+}
+
+func (f *fakeRollups) OverallTrend(ctx context.Context, window rollup.Window, limit int) ([]rollup.OverallTrendPoint, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.overall, nil
+}
+
+func (f *fakeRollups) SearchEntities(ctx context.Context, query string, limit int) ([]rollup.EntitySummary, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.entitySearch, nil
 }
 
 type fakeSearcher struct {
@@ -152,6 +168,71 @@ func TestHandleSearch_RejectsMissingQuery(t *testing.T) {
 
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/search", nil))
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.Code)
+	}
+}
+
+func TestHandleOverallTrend_ReturnsPoints(t *testing.T) {
+	rollups := &fakeRollups{overall: []rollup.OverallTrendPoint{
+		{WindowStart: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), TotalMentions: 10, AvgSentiment: 0.2},
+		{WindowStart: time.Date(2026, 8, 8, 0, 0, 0, 0, time.UTC), TotalMentions: 15, AvgSentiment: -0.1},
+	}}
+	router := NewRouter(rollups, &fakeSearcher{})
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/trend/overall?window=day", nil))
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.Code)
+	}
+
+	var got []overallTrendPointJSON
+	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got) != 2 || got[0].TotalMentions != 10 || got[1].AvgSentiment != -0.1 {
+		t.Errorf("unexpected response: %+v", got)
+	}
+}
+
+func TestHandleOverallTrend_RejectsInvalidWindow(t *testing.T) {
+	router := NewRouter(&fakeRollups{}, &fakeSearcher{})
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/trend/overall?window=decade", nil))
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.Code)
+	}
+}
+
+func TestHandleEntitySearch_ReturnsMatches(t *testing.T) {
+	rollups := &fakeRollups{entitySearch: []rollup.EntitySummary{{ID: 7, Name: "Elon Musk", Type: "PERSON"}}}
+	router := NewRouter(rollups, &fakeSearcher{})
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/entities?q=musk", nil))
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.Code)
+	}
+
+	var got []entitySummaryJSON
+	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "Elon Musk" {
+		t.Errorf("unexpected response: %+v", got)
+	}
+}
+
+func TestHandleEntitySearch_RejectsMissingQuery(t *testing.T) {
+	router := NewRouter(&fakeRollups{}, &fakeSearcher{})
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/entities", nil))
 
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", resp.Code)

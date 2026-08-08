@@ -15,8 +15,10 @@ import (
 )
 
 const (
-	defaultTrendingLimit = 20
-	defaultSearchLimit   = 20
+	defaultTrendingLimit    = 20
+	defaultSearchLimit      = 20
+	defaultOverallTrendDays = 30
+	defaultEntitySearchHits = 10
 )
 
 var validWindows = map[string]bool{"day": true, "week": true, "month": true, "year": true}
@@ -32,6 +34,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.HandleFunc("GET /{$}", h.handleTrending)
+	mux.HandleFunc("GET /entities/search", h.handleEntitySearch)
 	mux.HandleFunc("GET /entities/{id}", h.handleEntityDetail)
 	mux.HandleFunc("GET /search", h.handleSearch)
 
@@ -76,13 +79,37 @@ func (h *handlers) handleTrending(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := trendingData{Windows: tabsFor(window), Entities: entities}
+	overall, err := h.core.OverallTrend(r.Context(), window, defaultOverallTrendDays)
+	if err != nil {
+		log.Printf("ui: overall trend: %v", err)
+		http.Error(w, "failed to load trend", http.StatusBadGateway)
+		return
+	}
+
+	data := buildTrendingData(window, entities, overall)
 
 	if r.Header.Get("HX-Request") == "true" {
-		renderPartial(w, "entityList", entities)
+		renderPartial(w, "trendingPanel", data)
 		return
 	}
 	renderPage(w, "trendingContent", data)
+}
+
+func (h *handlers) handleEntitySearch(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query().Get("q")
+
+	var results []coreclient.EntitySummary
+	if query != "" {
+		var err error
+		results, err = h.core.SearchEntities(r.Context(), query, defaultEntitySearchHits)
+		if err != nil {
+			log.Printf("ui: entity search: %v", err)
+			http.Error(w, "entity search failed", http.StatusBadGateway)
+			return
+		}
+	}
+
+	renderPartial(w, "entitySearchResults", results)
 }
 
 func (h *handlers) handleEntityDetail(w http.ResponseWriter, r *http.Request) {
@@ -109,7 +136,7 @@ func (h *handlers) handleEntityDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	renderPage(w, "entityContent", detail)
+	renderPage(w, "entityContent", buildEntityPageData(detail))
 }
 
 func (h *handlers) handleSearch(w http.ResponseWriter, r *http.Request) {

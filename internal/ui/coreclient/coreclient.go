@@ -36,6 +36,18 @@ type SearchResult struct {
 	PublishedAt string `json:"published_at"`
 }
 
+type OverallTrendPoint struct {
+	WindowStart   string  `json:"window_start"`
+	TotalMentions int     `json:"total_mentions"`
+	AvgSentiment  float64 `json:"avg_sentiment"`
+}
+
+type EntitySummary struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
 type Client struct {
 	httpClient *http.Client
 	baseURL    string
@@ -96,6 +108,28 @@ func (c *Client) Search(ctx context.Context, query string, limit int) ([]SearchR
 	var out []SearchResult
 	if err := c.get(ctx, "/api/search?"+q.Encode(), &out); err != nil {
 		return nil, fmt.Errorf("search: %w", err)
+	}
+	return out, nil
+}
+
+// OverallTrend returns the aggregate mentions/sentiment time series across
+// every entity, for the home dashboard's chart.
+func (c *Client) OverallTrend(ctx context.Context, window string, limit int) ([]OverallTrendPoint, error) {
+	q := url.Values{"window": {window}, "limit": {strconv.Itoa(limit)}}
+	var out []OverallTrendPoint
+	if err := c.get(ctx, "/api/trend/overall?"+q.Encode(), &out); err != nil {
+		return nil, fmt.Errorf("get overall trend: %w", err)
+	}
+	return out, nil
+}
+
+// SearchEntities finds entities by name, for the dashboard's entity
+// search bar.
+func (c *Client) SearchEntities(ctx context.Context, query string, limit int) ([]EntitySummary, error) {
+	q := url.Values{"q": {query}, "limit": {strconv.Itoa(limit)}}
+	var out []EntitySummary
+	if err := c.get(ctx, "/api/entities?"+q.Encode(), &out); err != nil {
+		return nil, fmt.Errorf("search entities: %w", err)
 	}
 	return out, nil
 }

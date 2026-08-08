@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -194,5 +195,138 @@ func TestRollupStore_Compute_IsIdempotent(t *testing.T) {
 	}
 	if len(results) != 1 {
 		t.Fatalf("expected re-running Compute not to duplicate rows, got %d", len(results))
+	}
+}
+
+func TestRollupStore_OverallTrend_AggregatesAcrossEntitiesOldestFirst(t *testing.T) {
+	pool := testPool(t)
+	store := NewStore(pool, &fakeIndexer{})
+	rollupStore := NewRollupStore(pool)
+	ctx := context.Background()
+
+	seedSource(t, ctx, store)
+
+	day1 := time.Date(2026, time.August, 6, 9, 0, 0, 0, time.UTC)
+	day2 := time.Date(2026, time.August, 7, 9, 0, 0, 0, time.UTC)
+
+	articles := []pipeline.ArticleMentions{
+		{
+			Article: fetcher.Article{SourceID: "src-1", DedupKey: "dk-ot1", URL: "https://example.com/ot1", Title: "OT1", Content: "body", PublishedAt: day1},
+			Entities: []ner.Mention{
+				{Text: "Alpha", Type: "ORG", SentimentScore: 1.0},
+				{Text: "Beta", Type: "ORG", SentimentScore: -1.0},
+			},
+		},
+		{
+			Article:  fetcher.Article{SourceID: "src-1", DedupKey: "dk-ot2", URL: "https://example.com/ot2", Title: "OT2", Content: "body", PublishedAt: day2},
+			Entities: []ner.Mention{{Text: "Alpha", Type: "ORG", SentimentScore: 0.5}},
+		},
+	}
+	if err := store.SaveArticles(ctx, articles); err != nil {
+		t.Fatalf("SaveArticles: %v", err)
+	}
+	if err := rollupStore.Compute(ctx); err != nil {
+		t.Fatalf("Compute: %v", err)
+	}
+
+	trend, err := rollupStore.OverallTrend(ctx, rollup.Day, 10)
+	if err != nil {
+		t.Fatalf("OverallTrend: %v", err)
+	}
+	if len(trend) != 2 {
+		t.Fatalf("expected 2 daily points, got %d: %+v", len(trend), trend)
+	}
+	if trend[0].WindowStart.After(trend[1].WindowStart) {
+		t.Fatalf("expected oldest-first ordering, got %+v", trend)
+	}
+
+	// day1: Alpha(1.0) + Beta(-1.0), 2 mentions total, avg sentiment 0.
+	if trend[0].TotalMentions != 2 {
+		t.Errorf("expected day1 total_mentions=2, got %d", trend[0].TotalMentions)
+	}
+	if trend[0].AvgSentiment < -0.001 || trend[0].AvgSentiment > 0.001 {
+		t.Errorf("expected day1 avg_sentiment=0, got %v", trend[0].AvgSentiment)
+	}
+	// day2: Alpha(0.5), 1 mention total.
+	if trend[1].TotalMentions != 1 {
+		t.Errorf("expected day2 total_mentions=1, got %d", trend[1].TotalMentions)
+	}
+	if want := 0.5; trend[1].AvgSentiment < want-0.001 || trend[1].AvgSentiment > want+0.001 {
+		t.Errorf("expected day2 avg_sentiment=%v, got %v", want, trend[1].AvgSentiment)
+	}
+}
+
+func TestRollupStore_OverallTrend_RespectsLimit(t *testing.T) {
+	pool := testPool(t)
+	store := NewStore(pool, &fakeIndexer{})
+	rollupStore := NewRollupStore(pool)
+	ctx := context.Background()
+
+	seedSource(t, ctx, store)
+
+	base := time.Date(2026, time.August, 1, 9, 0, 0, 0, time.UTC)
+	articles := make([]pipeline.ArticleMentions, 0, 5)
+	for i := 0; i < 5; i++ {
+		articles = append(articles, pipeline.ArticleMentions{
+			Article:  fetcher.Article{SourceID: "src-1", DedupKey: fmt.Sprintf("dk-limit-%d", i), URL: fmt.Sprintf("https://example.com/limit-%d", i), Title: "L", Content: "body", PublishedAt: base.AddDate(0, 0, i)},
+			Entities: []ner.Mention{{Text: "Gamma", Type: "ORG", SentimentScore: 0.1}},
+		})
+	}
+	if err := store.SaveArticles(ctx, articles); err != nil {
+		t.Fatalf("SaveArticles: %v", err)
+	}
+	if err := rollupStore.Compute(ctx); err != nil {
+		t.Fatalf("Compute: %v", err)
+	}
+
+	trend, err := rollupStore.OverallTrend(ctx, rollup.Day, 2)
+	if err != nil {
+		t.Fatalf("OverallTrend: %v", err)
+	}
+	if len(trend) != 2 {
+		t.Fatalf("expected limit=2 to return 2 points, got %d", len(trend))
+	}
+	// The 2 most recent days: base+3 and base+4, still oldest-first.
+	if !trend[0].WindowStart.Equal(base.AddDate(0, 0, 3).Truncate(24 * time.Hour)) {
+		t.Errorf("expected the most recent 2 points, got %+v", trend)
+	}
+}
+
+func TestRollupStore_SearchEntities_MatchesCaseInsensitiveSubstring(t *testing.T) {
+	pool := testPool(t)
+	store := NewStore(pool, &fakeIndexer{})
+	rollupStore := NewRollupStore(pool)
+	ctx := context.Background()
+
+	seedSource(t, ctx, store)
+
+	published := time.Date(2026, time.August, 8, 9, 0, 0, 0, time.UTC)
+	articles := []pipeline.ArticleMentions{
+		{
+			Article: fetcher.Article{SourceID: "src-1", DedupKey: "dk-search-1", URL: "https://example.com/search1", Title: "S1", Content: "body", PublishedAt: published},
+			Entities: []ner.Mention{
+				{Text: "Elon Musk", Type: "PERSON", SentimentScore: 0.1},
+				{Text: "Tesla", Type: "ORG", SentimentScore: 0.1},
+			},
+		},
+	}
+	if err := store.SaveArticles(ctx, articles); err != nil {
+		t.Fatalf("SaveArticles: %v", err)
+	}
+
+	results, err := rollupStore.SearchEntities(ctx, "musk", 10)
+	if err != nil {
+		t.Fatalf("SearchEntities: %v", err)
+	}
+	if len(results) != 1 || results[0].Name != "Elon Musk" {
+		t.Errorf("expected case-insensitive substring match for 'musk', got %+v", results)
+	}
+
+	noMatch, err := rollupStore.SearchEntities(ctx, "nonexistent", 10)
+	if err != nil {
+		t.Fatalf("SearchEntities: %v", err)
+	}
+	if len(noMatch) != 0 {
+		t.Errorf("expected no matches, got %+v", noMatch)
 	}
 }
