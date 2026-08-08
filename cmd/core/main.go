@@ -14,6 +14,7 @@ import (
 	"github.com/whatisgoing-com/whatisgoing/internal/core/api"
 	"github.com/whatisgoing-com/whatisgoing/internal/core/config"
 	"github.com/whatisgoing-com/whatisgoing/internal/core/fetcher"
+	"github.com/whatisgoing-com/whatisgoing/internal/core/ner"
 	"github.com/whatisgoing-com/whatisgoing/internal/core/pipeline"
 	"github.com/whatisgoing-com/whatisgoing/internal/core/politeness"
 	"github.com/whatisgoing-com/whatisgoing/internal/core/scheduler"
@@ -64,11 +65,14 @@ func main() {
 		Transport: politeness.NewTransport(nil, userAgent, minDelayPerDomain, maxConcurrentFetch),
 	}
 
+	nerClient := ner.NewClient(mustEnv("NER_SENTIMENT_URL"), nil)
+
 	coordinator := &pipeline.Coordinator{
 		Fetcher: &fetcher.MultiFetcher{
 			RSS:  fetcher.NewRSSFetcher(politeClient),
 			HTML: fetcher.NewHTMLFetcher(politeClient, 25),
 		},
+		NER:     nerClient,
 		Store:   store,
 		Sources: sources,
 	}

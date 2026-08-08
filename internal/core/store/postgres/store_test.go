@@ -9,6 +9,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/whatisgoing-com/whatisgoing/internal/core/fetcher"
+	"github.com/whatisgoing-com/whatisgoing/internal/core/ner"
+	"github.com/whatisgoing-com/whatisgoing/internal/core/pipeline"
 	"github.com/whatisgoing-com/whatisgoing/internal/core/search"
 )
 
@@ -73,8 +75,8 @@ func TestStore_SaveArticles_InsertsAndIndexes(t *testing.T) {
 
 	seedSource(t, ctx, store)
 
-	articles := []fetcher.Article{
-		{SourceID: "src-1", DedupKey: "dk-1", URL: "https://example.com/1", Title: "One", Content: "body one"},
+	articles := []pipeline.ArticleMentions{
+		{Article: fetcher.Article{SourceID: "src-1", DedupKey: "dk-1", URL: "https://example.com/1", Title: "One", Content: "body one"}},
 	}
 	if err := store.SaveArticles(ctx, articles); err != nil {
 		t.Fatalf("SaveArticles: %v", err)
@@ -106,10 +108,10 @@ func TestStore_SaveArticles_DedupsAcrossRuns(t *testing.T) {
 
 	article := fetcher.Article{SourceID: "src-1", DedupKey: "dk-dup", URL: "https://example.com/dup", Title: "Dup", Content: "body"}
 
-	if err := store.SaveArticles(ctx, []fetcher.Article{article}); err != nil {
+	if err := store.SaveArticles(ctx, []pipeline.ArticleMentions{{Article: article}}); err != nil {
 		t.Fatalf("first SaveArticles: %v", err)
 	}
-	if err := store.SaveArticles(ctx, []fetcher.Article{article}); err != nil {
+	if err := store.SaveArticles(ctx, []pipeline.ArticleMentions{{Article: article}}); err != nil {
 		t.Fatalf("second SaveArticles: %v", err)
 	}
 
@@ -133,8 +135,8 @@ func TestStore_SaveArticles_LeavesIndexedAtNullOnIndexerFailure(t *testing.T) {
 
 	seedSource(t, ctx, store)
 
-	err := store.SaveArticles(ctx, []fetcher.Article{
-		{SourceID: "src-1", DedupKey: "dk-fail", URL: "https://example.com/fail", Title: "Fail", Content: "body"},
+	err := store.SaveArticles(ctx, []pipeline.ArticleMentions{
+		{Article: fetcher.Article{SourceID: "src-1", DedupKey: "dk-fail", URL: "https://example.com/fail", Title: "Fail", Content: "body"}},
 	})
 	if err != nil {
 		t.Fatalf("SaveArticles should not fail when only the indexer fails: %v", err)
@@ -146,5 +148,106 @@ func TestStore_SaveArticles_LeavesIndexedAtNullOnIndexerFailure(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("expected article saved with indexed_at NULL after indexer failure, got count=%d", count)
+	}
+}
+
+func TestStore_SaveArticles_PersistsAggregatedMentionsAndCooccurrence(t *testing.T) {
+	pool := testPool(t)
+	store := NewStore(pool, &fakeIndexer{})
+	ctx := context.Background()
+
+	seedSource(t, ctx, store)
+
+	article := fetcher.Article{SourceID: "src-1", DedupKey: "dk-entities", URL: "https://example.com/e", Title: "E", Content: "body"}
+	entities := []ner.Mention{
+		{Text: "Elon Musk", Type: "PERSON", SentimentScore: 0.8},
+		{Text: "Elon Musk", Type: "PERSON", SentimentScore: 0.4},
+		{Text: "Tesla", Type: "ORG", SentimentScore: -0.2},
+	}
+
+	if err := store.SaveArticles(ctx, []pipeline.ArticleMentions{{Article: article, Entities: entities}}); err != nil {
+		t.Fatalf("SaveArticles: %v", err)
+	}
+
+	var articleID int64
+	if err := pool.QueryRow(ctx, `SELECT id FROM articles WHERE dedup_key = 'dk-entities'`).Scan(&articleID); err != nil {
+		t.Fatalf("query article id: %v", err)
+	}
+
+	var muskID, teslaID int64
+	var muskCount int
+	var muskSentiment float64
+	if err := pool.QueryRow(ctx, `
+		SELECT e.id, m.mention_count, m.sentiment_score
+		FROM entities e JOIN mentions m ON m.entity_id = e.id
+		WHERE e.name = 'Elon Musk' AND e.type = 'PERSON' AND m.article_id = $1`, articleID,
+	).Scan(&muskID, &muskCount, &muskSentiment); err != nil {
+		t.Fatalf("query Elon Musk mention: %v", err)
+	}
+	if muskCount != 2 {
+		t.Errorf("expected mention_count=2 for Elon Musk (mentioned twice), got %d", muskCount)
+	}
+	if want := 0.6; muskSentiment < want-0.001 || muskSentiment > want+0.001 {
+		t.Errorf("expected averaged sentiment_score=%v for Elon Musk, got %v", want, muskSentiment)
+	}
+
+	if err := pool.QueryRow(ctx, `SELECT id FROM entities WHERE name = 'Tesla' AND type = 'ORG'`).Scan(&teslaID); err != nil {
+		t.Fatalf("query Tesla entity: %v", err)
+	}
+
+	var cooccurrenceCount int
+	a, b := muskID, teslaID
+	if a > b {
+		a, b = b, a
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM entity_cooccurrence
+		WHERE article_id = $1 AND entity_a_id = $2 AND entity_b_id = $3`, articleID, a, b,
+	).Scan(&cooccurrenceCount); err != nil {
+		t.Fatalf("query cooccurrence: %v", err)
+	}
+	if cooccurrenceCount != 1 {
+		t.Errorf("expected 1 cooccurrence row for (Elon Musk, Tesla), got %d", cooccurrenceCount)
+	}
+}
+
+func TestStore_SaveArticles_SharedEntityAcrossArticlesAccumulatesSeparateMentions(t *testing.T) {
+	pool := testPool(t)
+	store := NewStore(pool, &fakeIndexer{})
+	ctx := context.Background()
+
+	seedSource(t, ctx, store)
+
+	first := pipeline.ArticleMentions{
+		Article:  fetcher.Article{SourceID: "src-1", DedupKey: "dk-shared-1", URL: "https://example.com/s1", Title: "S1", Content: "body"},
+		Entities: []ner.Mention{{Text: "Apple", Type: "ORG", SentimentScore: 0.5}},
+	}
+	second := pipeline.ArticleMentions{
+		Article:  fetcher.Article{SourceID: "src-1", DedupKey: "dk-shared-2", URL: "https://example.com/s2", Title: "S2", Content: "body"},
+		Entities: []ner.Mention{{Text: "Apple", Type: "ORG", SentimentScore: -0.5}},
+	}
+
+	if err := store.SaveArticles(ctx, []pipeline.ArticleMentions{first, second}); err != nil {
+		t.Fatalf("SaveArticles: %v", err)
+	}
+
+	var entityCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM entities WHERE name = 'Apple' AND type = 'ORG'`).Scan(&entityCount); err != nil {
+		t.Fatalf("query entity count: %v", err)
+	}
+	if entityCount != 1 {
+		t.Errorf("expected the Apple entity to be shared (deduped) across articles, got %d rows", entityCount)
+	}
+
+	var mentionRows int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM mentions m
+		JOIN entities e ON e.id = m.entity_id
+		WHERE e.name = 'Apple' AND e.type = 'ORG'`,
+	).Scan(&mentionRows); err != nil {
+		t.Fatalf("query mention rows: %v", err)
+	}
+	if mentionRows != 2 {
+		t.Errorf("expected 2 separate mentions rows (one per article), got %d", mentionRows)
 	}
 }

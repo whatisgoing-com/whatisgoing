@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/whatisgoing-com/whatisgoing/internal/core/fetcher"
+	"github.com/whatisgoing-com/whatisgoing/internal/core/pipeline"
 )
 
 func TestStore_Reconcile_RepairsUnindexedArticles(t *testing.T) {
@@ -16,8 +17,8 @@ func TestStore_Reconcile_RepairsUnindexedArticles(t *testing.T) {
 	store := NewStore(pool, failingIndexer)
 	seedSource(t, ctx, store)
 
-	if err := store.SaveArticles(ctx, []fetcher.Article{
-		{SourceID: "src-1", DedupKey: "dk-recon", URL: "https://example.com/r", Title: "R", Content: "body"},
+	if err := store.SaveArticles(ctx, []pipeline.ArticleMentions{
+		{Article: fetcher.Article{SourceID: "src-1", DedupKey: "dk-recon", URL: "https://example.com/r", Title: "R", Content: "body"}},
 	}); err != nil {
 		t.Fatalf("SaveArticles: %v", err)
 	}
