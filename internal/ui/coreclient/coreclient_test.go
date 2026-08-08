@@ -106,6 +106,28 @@ func TestClient_OverallTrend_ParsesResponse(t *testing.T) {
 	}
 }
 
+func TestClient_SentimentBreakdown_ParsesResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/sentiment" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("window"); got != "day" {
+			t.Errorf("expected window=day, got %q", got)
+		}
+		json.NewEncoder(w).Encode(SentimentBreakdown{Positive: 5, Neutral: 2, Negative: 3})
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, nil)
+	breakdown, err := client.SentimentBreakdown(context.Background(), "day")
+	if err != nil {
+		t.Fatalf("SentimentBreakdown() error = %v", err)
+	}
+	if breakdown.Positive != 5 || breakdown.Neutral != 2 || breakdown.Negative != 3 {
+		t.Errorf("unexpected breakdown: %+v", breakdown)
+	}
+}
+
 func TestClient_SearchEntities_ParsesResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.URL.Query().Get("q"); got != "musk" {

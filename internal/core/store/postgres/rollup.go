@@ -47,19 +47,25 @@ func (s *RollupStore) Compute(ctx context.Context) error {
 		}
 
 		_, err := s.pool.Exec(ctx, `
-			INSERT INTO entity_rollups (entity_id, window_kind, window_start, mention_count, sentiment_score)
+			INSERT INTO entity_rollups (entity_id, window_kind, window_start, mention_count, sentiment_score, positive_count, neutral_count, negative_count)
 			SELECT
 				m.entity_id,
 				$1::rollup_window,
 				date_trunc($2, COALESCE(a.published_at, a.fetched_at))::date,
 				SUM(m.mention_count),
-				SUM(m.sentiment_score * m.mention_count) / SUM(m.mention_count)
+				SUM(m.sentiment_score * m.mention_count) / SUM(m.mention_count),
+				COUNT(*) FILTER (WHERE m.sentiment_score > 0),
+				COUNT(*) FILTER (WHERE m.sentiment_score = 0),
+				COUNT(*) FILTER (WHERE m.sentiment_score < 0)
 			FROM mentions m
 			JOIN articles a ON a.id = m.article_id
 			GROUP BY m.entity_id, date_trunc($2, COALESCE(a.published_at, a.fetched_at))
 			ON CONFLICT (entity_id, window_kind, window_start) DO UPDATE
 			SET mention_count = EXCLUDED.mention_count,
 			    sentiment_score = EXCLUDED.sentiment_score,
+			    positive_count = EXCLUDED.positive_count,
+			    neutral_count = EXCLUDED.neutral_count,
+			    negative_count = EXCLUDED.negative_count,
 			    computed_at = now()`,
 			string(window), unit,
 		)
@@ -75,7 +81,7 @@ func (s *RollupStore) Compute(ctx context.Context) error {
 // orgs" feature.
 func (s *RollupStore) TopEntities(ctx context.Context, window rollup.Window, windowStart time.Time, limit int) ([]rollup.EntityRollup, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT e.id, e.name, e.type, r.window_kind, r.window_start, r.mention_count, r.sentiment_score
+		SELECT e.id, e.name, e.type, r.window_kind, r.window_start, r.mention_count, r.sentiment_score, r.positive_count, r.neutral_count, r.negative_count
 		FROM entity_rollups r
 		JOIN entities e ON e.id = r.entity_id
 		WHERE r.window_kind = $1 AND r.window_start = $2
@@ -95,7 +101,7 @@ func (s *RollupStore) TopEntities(ctx context.Context, window rollup.Window, win
 // time at a given window granularity, oldest first.
 func (s *RollupStore) ReputationTrend(ctx context.Context, entityID int64, window rollup.Window) ([]rollup.EntityRollup, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT e.id, e.name, e.type, r.window_kind, r.window_start, r.mention_count, r.sentiment_score
+		SELECT e.id, e.name, e.type, r.window_kind, r.window_start, r.mention_count, r.sentiment_score, r.positive_count, r.neutral_count, r.negative_count
 		FROM entity_rollups r
 		JOIN entities e ON e.id = r.entity_id
 		WHERE r.entity_id = $1 AND r.window_kind = $2
@@ -182,7 +188,7 @@ func scanEntityRollups(rows pgx.Rows) ([]rollup.EntityRollup, error) {
 	for rows.Next() {
 		var r rollup.EntityRollup
 		var window string
-		if err := rows.Scan(&r.EntityID, &r.EntityName, &r.EntityType, &window, &r.WindowStart, &r.MentionCount, &r.SentimentScore); err != nil {
+		if err := rows.Scan(&r.EntityID, &r.EntityName, &r.EntityType, &window, &r.WindowStart, &r.MentionCount, &r.SentimentScore, &r.PositiveCount, &r.NeutralCount, &r.NegativeCount); err != nil {
 			return nil, fmt.Errorf("scan entity rollup: %w", err)
 		}
 		r.Window = rollup.Window(window)
@@ -192,4 +198,23 @@ func scanEntityRollups(rows pgx.Rows) ([]rollup.EntityRollup, error) {
 		return nil, fmt.Errorf("iterate entity rollups: %w", err)
 	}
 	return results, nil
+}
+
+// SentimentBreakdown sums positive/neutral/negative mention counts across
+// every entity for one window/window_start — the dashboard's overall
+// sentiment pie chart. Unlike TopEntities, this isn't limited to the top
+// N entities: it's a real total across everything rolled up in that
+// bucket.
+func (s *RollupStore) SentimentBreakdown(ctx context.Context, window rollup.Window, windowStart time.Time) (rollup.SentimentBreakdown, error) {
+	var b rollup.SentimentBreakdown
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(positive_count), 0), COALESCE(SUM(neutral_count), 0), COALESCE(SUM(negative_count), 0)
+		FROM entity_rollups
+		WHERE window_kind = $1 AND window_start = $2`,
+		string(window), windowStart,
+	).Scan(&b.Positive, &b.Neutral, &b.Negative)
+	if err != nil {
+		return rollup.SentimentBreakdown{}, fmt.Errorf("query sentiment breakdown: %w", err)
+	}
+	return b, nil
 }

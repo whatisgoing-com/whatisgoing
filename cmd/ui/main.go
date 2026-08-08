@@ -86,7 +86,14 @@ func (h *handlers) handleTrending(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := buildTrendingData(window, entities, overall)
+	breakdown, err := h.core.SentimentBreakdown(r.Context(), window)
+	if err != nil {
+		log.Printf("ui: sentiment breakdown: %v", err)
+		http.Error(w, "failed to load sentiment breakdown", http.StatusBadGateway)
+		return
+	}
+
+	data := buildTrendingData(window, entities, overall, breakdown)
 
 	if r.Header.Get("HX-Request") == "true" {
 		renderPartial(w, "trendingPanel", data)

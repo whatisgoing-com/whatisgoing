@@ -17,6 +17,7 @@ type fakeRollups struct {
 	trend        []rollup.EntityRollup
 	overall      []rollup.OverallTrendPoint
 	entitySearch []rollup.EntitySummary
+	sentiment    rollup.SentimentBreakdown
 	err          error
 }
 
@@ -46,6 +47,13 @@ func (f *fakeRollups) SearchEntities(ctx context.Context, query string, limit in
 		return nil, f.err
 	}
 	return f.entitySearch, nil
+}
+
+func (f *fakeRollups) SentimentBreakdown(ctx context.Context, window rollup.Window, windowStart time.Time) (rollup.SentimentBreakdown, error) {
+	if f.err != nil {
+		return rollup.SentimentBreakdown{}, f.err
+	}
+	return f.sentiment, nil
 }
 
 type fakeSearcher struct {
@@ -233,6 +241,37 @@ func TestHandleEntitySearch_RejectsMissingQuery(t *testing.T) {
 
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/entities", nil))
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.Code)
+	}
+}
+
+func TestHandleSentimentBreakdown_ReturnsCounts(t *testing.T) {
+	rollups := &fakeRollups{sentiment: rollup.SentimentBreakdown{Positive: 5, Neutral: 2, Negative: 3}}
+	router := NewRouter(rollups, &fakeSearcher{})
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/sentiment?window=day", nil))
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.Code)
+	}
+
+	var got sentimentBreakdownJSON
+	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Positive != 5 || got.Neutral != 2 || got.Negative != 3 {
+		t.Errorf("unexpected response: %+v", got)
+	}
+}
+
+func TestHandleSentimentBreakdown_RejectsInvalidWindow(t *testing.T) {
+	router := NewRouter(&fakeRollups{}, &fakeSearcher{})
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/sentiment?window=decade", nil))
 
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", resp.Code)

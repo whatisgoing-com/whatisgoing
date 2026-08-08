@@ -64,6 +64,51 @@ func TestRollupStore_Compute_AggregatesMentionCountAndAveragesSentimentPerDay(t 
 	}
 }
 
+func TestRollupStore_Compute_BucketsSentimentIntoPositiveNeutralNegativeCounts(t *testing.T) {
+	pool := testPool(t)
+	store := NewStore(pool, &fakeIndexer{})
+	rollupStore := NewRollupStore(pool)
+	ctx := context.Background()
+
+	seedSource(t, ctx, store)
+
+	published := time.Date(2026, time.August, 8, 9, 0, 0, 0, time.UTC)
+
+	articles := []pipeline.ArticleMentions{
+		{
+			Article:  fetcher.Article{SourceID: "src-1", DedupKey: "dk-b1", URL: "https://example.com/b1", Title: "B1", Content: "body", PublishedAt: published},
+			Entities: []ner.Mention{{Text: "Bucket Co", Type: "ORG", SentimentScore: 0.8}},
+		},
+		{
+			Article:  fetcher.Article{SourceID: "src-1", DedupKey: "dk-b2", URL: "https://example.com/b2", Title: "B2", Content: "body", PublishedAt: published.Add(time.Hour)},
+			Entities: []ner.Mention{{Text: "Bucket Co", Type: "ORG", SentimentScore: -0.6}},
+		},
+		{
+			Article:  fetcher.Article{SourceID: "src-1", DedupKey: "dk-b3", URL: "https://example.com/b3", Title: "B3", Content: "body", PublishedAt: published.Add(2 * time.Hour)},
+			Entities: []ner.Mention{{Text: "Bucket Co", Type: "ORG", SentimentScore: 0}},
+		},
+	}
+	if err := store.SaveArticles(ctx, articles); err != nil {
+		t.Fatalf("SaveArticles: %v", err)
+	}
+	if err := rollupStore.Compute(ctx); err != nil {
+		t.Fatalf("Compute: %v", err)
+	}
+
+	dayStart := rollup.WindowStart(rollup.Day, published)
+	results, err := rollupStore.TopEntities(ctx, rollup.Day, dayStart, 10)
+	if err != nil {
+		t.Fatalf("TopEntities: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 entity rollup, got %d: %+v", len(results), results)
+	}
+	got := results[0]
+	if got.PositiveCount != 1 || got.NeutralCount != 1 || got.NegativeCount != 1 {
+		t.Errorf("expected 1 positive, 1 neutral, 1 negative, got %+v", got)
+	}
+}
+
 func TestRollupStore_TopEntities_RanksByMentionCountDescending(t *testing.T) {
 	pool := testPool(t)
 	store := NewStore(pool, &fakeIndexer{})
@@ -289,6 +334,63 @@ func TestRollupStore_OverallTrend_RespectsLimit(t *testing.T) {
 	// The 2 most recent days: base+3 and base+4, still oldest-first.
 	if !trend[0].WindowStart.Equal(base.AddDate(0, 0, 3).Truncate(24 * time.Hour)) {
 		t.Errorf("expected the most recent 2 points, got %+v", trend)
+	}
+}
+
+func TestRollupStore_SentimentBreakdown_SumsAcrossAllEntitiesNotJustTopN(t *testing.T) {
+	pool := testPool(t)
+	store := NewStore(pool, &fakeIndexer{})
+	rollupStore := NewRollupStore(pool)
+	ctx := context.Background()
+
+	seedSource(t, ctx, store)
+
+	published := time.Date(2026, time.August, 8, 9, 0, 0, 0, time.UTC)
+
+	articles := []pipeline.ArticleMentions{
+		{
+			Article: fetcher.Article{SourceID: "src-1", DedupKey: "dk-sb1", URL: "https://example.com/sb1", Title: "SB1", Content: "body", PublishedAt: published},
+			Entities: []ner.Mention{
+				{Text: "Sunny Co", Type: "ORG", SentimentScore: 0.5},
+				{Text: "Stormy Co", Type: "ORG", SentimentScore: -0.5},
+			},
+		},
+		{
+			Article:  fetcher.Article{SourceID: "src-1", DedupKey: "dk-sb2", URL: "https://example.com/sb2", Title: "SB2", Content: "body", PublishedAt: published.Add(time.Hour)},
+			Entities: []ner.Mention{{Text: "Flat Co", Type: "ORG", SentimentScore: 0}},
+		},
+	}
+	if err := store.SaveArticles(ctx, articles); err != nil {
+		t.Fatalf("SaveArticles: %v", err)
+	}
+	if err := rollupStore.Compute(ctx); err != nil {
+		t.Fatalf("Compute: %v", err)
+	}
+
+	dayStart := rollup.WindowStart(rollup.Day, published)
+
+	// limit=1 would only see one entity via TopEntities, but
+	// SentimentBreakdown must still see all three.
+	breakdown, err := rollupStore.SentimentBreakdown(ctx, rollup.Day, dayStart)
+	if err != nil {
+		t.Fatalf("SentimentBreakdown: %v", err)
+	}
+	if breakdown.Positive != 1 || breakdown.Neutral != 1 || breakdown.Negative != 1 {
+		t.Errorf("expected 1/1/1 across all entities, got %+v", breakdown)
+	}
+}
+
+func TestRollupStore_SentimentBreakdown_ZeroWhenNoRollupsForWindow(t *testing.T) {
+	pool := testPool(t)
+	rollupStore := NewRollupStore(pool)
+	ctx := context.Background()
+
+	breakdown, err := rollupStore.SentimentBreakdown(ctx, rollup.Day, time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("SentimentBreakdown: %v", err)
+	}
+	if breakdown != (rollup.SentimentBreakdown{}) {
+		t.Errorf("expected zero breakdown for an empty window, got %+v", breakdown)
 	}
 }
 
