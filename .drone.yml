@@ -7,6 +7,8 @@ trigger:
   paths:
     include:
       - cmd/core/**
+      - internal/core/**
+      - configs/**
       - go.mod
       - go.sum
 
@@ -14,8 +16,9 @@ steps:
   - name: test
     image: golang:1.25-alpine
     commands:
-      - go build ./cmd/core/...
-      - go vet ./cmd/core/...
+      - go build ./cmd/core/... ./internal/core/...
+      - go vet ./cmd/core/... ./internal/core/...
+      - go test ./internal/core/...
 
   - name: build-and-push
     image: plugins/docker

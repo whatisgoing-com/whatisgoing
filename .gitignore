@@ -14,5 +14,8 @@ venv/
 .env.*
 !.env.example
 
+# Real source list is a content decision, not something to commit as code
+configs/sources.yaml
+
 # OS
 .DS_Store
