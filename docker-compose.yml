@@ -33,13 +33,22 @@ services:
       CORE_PORT: "8080"
       DATABASE_URL: postgres://whatisgoing:whatisgoing@postgres:5432/whatisgoing?sslmode=disable
       MEILISEARCH_URL: http://meilisearch:7700
+      MEILISEARCH_KEY: dev-master-key
       NER_SENTIMENT_URL: http://ner-sentiment:8000
+      SOURCES_CONFIG_PATH: /configs/sources.yaml
+    volumes:
+      - ./configs:/configs:ro
     ports:
       - "8080:8080"
     depends_on:
       - postgres
       - meilisearch
       - ner-sentiment
+    # On a fresh volume, postgres can still be running initdb when core
+    # starts — depends_on only waits for the container to start, not for
+    # postgres to actually accept connections. Self-heal rather than
+    # requiring a manual restart.
+    restart: on-failure
 
   ui:
     build:

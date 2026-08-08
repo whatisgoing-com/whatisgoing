@@ -9,36 +9,55 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/whatisgoing-com/whatisgoing/internal/core/api"
 	"github.com/whatisgoing-com/whatisgoing/internal/core/config"
 	"github.com/whatisgoing-com/whatisgoing/internal/core/fetcher"
 	"github.com/whatisgoing-com/whatisgoing/internal/core/pipeline"
 	"github.com/whatisgoing-com/whatisgoing/internal/core/politeness"
 	"github.com/whatisgoing-com/whatisgoing/internal/core/scheduler"
+	"github.com/whatisgoing-com/whatisgoing/internal/core/search"
+	postgresstore "github.com/whatisgoing-com/whatisgoing/internal/core/store/postgres"
 )
 
 const (
 	userAgent          = "whatisgoingbot/0.1 (+https://whatisgoing.com; contact: hello@whatisgoing.com)"
 	minDelayPerDomain  = 1500 * time.Millisecond
 	maxConcurrentFetch = 2
+	fetchInterval      = 15 * time.Minute
+	reconcileInterval  = time.Hour
 )
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	port := os.Getenv("CORE_PORT")
-	if port == "" {
-		port = "8080"
-	}
+	port := envOr("CORE_PORT", "8080")
 
-	sourcesPath := os.Getenv("SOURCES_CONFIG_PATH")
-	if sourcesPath == "" {
-		sourcesPath = "configs/sources.yaml"
-	}
+	sourcesPath := envOr("SOURCES_CONFIG_PATH", "configs/sources.yaml")
 	sources, err := config.LoadSources(sourcesPath)
 	if err != nil {
 		log.Printf("no sources loaded from %s (%v) — ingestion will be a no-op until one is provided", sourcesPath, err)
+	}
+
+	databaseURL := mustEnv("DATABASE_URL")
+
+	if err := postgresstore.Migrate(ctx, databaseURL); err != nil {
+		log.Fatalf("run migrations: %v", err)
+	}
+
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		log.Fatalf("connect to postgres: %v", err)
+	}
+	defer pool.Close()
+
+	indexer := search.NewMeiliIndexer(mustEnv("MEILISEARCH_URL"), os.Getenv("MEILISEARCH_KEY"), "articles")
+	store := postgresstore.NewStore(pool, indexer)
+
+	if err := store.UpsertSources(ctx, sources); err != nil {
+		log.Fatalf("upsert sources: %v", err)
 	}
 
 	politeClient := &http.Client{
@@ -50,15 +69,24 @@ func main() {
 			RSS:  fetcher.NewRSSFetcher(politeClient),
 			HTML: fetcher.NewHTMLFetcher(politeClient, 25),
 		},
-		Store:   logStore{},
+		Store:   store,
 		Sources: sources,
 	}
 
-	sched := &scheduler.Scheduler{
-		Interval: 15 * time.Minute,
-		Task:     coordinator.Run,
+	fetchSched := &scheduler.Scheduler{Interval: fetchInterval, Task: coordinator.Run}
+	go fetchSched.Run(ctx)
+
+	reconcileSched := &scheduler.Scheduler{
+		Interval: reconcileInterval,
+		Task: func(ctx context.Context) error {
+			repaired, err := store.Reconcile(ctx, 100)
+			if repaired > 0 {
+				log.Printf("reconcile: repaired %d articles missing from the search index", repaired)
+			}
+			return err
+		},
 	}
-	go sched.Run(ctx)
+	go reconcileSched.Run(ctx)
 
 	srv := &http.Server{
 		Addr:    ":" + port,
@@ -82,10 +110,17 @@ func main() {
 	}
 }
 
-// logStore is a temporary stand-in for the Postgres-backed store (issue #4).
-type logStore struct{}
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
 
-func (logStore) SaveArticles(ctx context.Context, articles []fetcher.Article) error {
-	log.Printf("would save %d articles", len(articles))
-	return nil
+func mustEnv(key string) string {
+	v := os.Getenv(key)
+	if v == "" {
+		log.Fatalf("required environment variable %s is not set", key)
+	}
+	return v
 }
