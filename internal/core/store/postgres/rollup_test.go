@@ -73,6 +73,10 @@ func TestRollupStore_TopEntities_RanksByMentionCountDescending(t *testing.T) {
 
 	published := time.Date(2026, time.August, 8, 9, 0, 0, 0, time.UTC)
 
+	// Popular Corp is covered by 2 distinct articles, Niche Org by 1 — a
+	// within-article repeat mention (article 1 mentions Popular Corp
+	// twice) does NOT count extra, since mention_count reflects article
+	// coverage, not raw occurrence density.
 	articles := []pipeline.ArticleMentions{
 		{
 			Article: fetcher.Article{SourceID: "src-1", DedupKey: "dk-t1", URL: "https://example.com/t1", Title: "T1", Content: "body", PublishedAt: published},
@@ -80,6 +84,12 @@ func TestRollupStore_TopEntities_RanksByMentionCountDescending(t *testing.T) {
 				{Text: "Popular Corp", Type: "ORG", SentimentScore: 0.1},
 				{Text: "Popular Corp", Type: "ORG", SentimentScore: 0.1},
 				{Text: "Niche Org", Type: "ORG", SentimentScore: 0.1},
+			},
+		},
+		{
+			Article: fetcher.Article{SourceID: "src-1", DedupKey: "dk-t2", URL: "https://example.com/t2", Title: "T2", Content: "body", PublishedAt: published.Add(time.Hour)},
+			Entities: []ner.Mention{
+				{Text: "Popular Corp", Type: "ORG", SentimentScore: 0.1},
 			},
 		},
 	}
