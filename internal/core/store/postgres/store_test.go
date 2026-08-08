@@ -184,8 +184,8 @@ func TestStore_SaveArticles_PersistsAggregatedMentionsAndCooccurrence(t *testing
 	).Scan(&muskID, &muskCount, &muskSentiment); err != nil {
 		t.Fatalf("query Elon Musk mention: %v", err)
 	}
-	if muskCount != 2 {
-		t.Errorf("expected mention_count=2 for Elon Musk (mentioned twice), got %d", muskCount)
+	if muskCount != 1 {
+		t.Errorf("expected mention_count=1 for Elon Musk (2 occurrences within 1 article still count as 1 mention), got %d", muskCount)
 	}
 	if want := 0.6; muskSentiment < want-0.001 || muskSentiment > want+0.001 {
 		t.Errorf("expected averaged sentiment_score=%v for Elon Musk, got %v", want, muskSentiment)
