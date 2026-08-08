@@ -12,6 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/whatisgoing-com/whatisgoing/internal/core/fetcher"
+	"github.com/whatisgoing-com/whatisgoing/internal/core/ner"
+	"github.com/whatisgoing-com/whatisgoing/internal/core/pipeline"
 	"github.com/whatisgoing-com/whatisgoing/internal/core/search"
 )
 
@@ -44,31 +46,34 @@ func (s *Store) UpsertSources(ctx context.Context, sources []fetcher.Source) err
 	return nil
 }
 
-func (s *Store) SaveArticles(ctx context.Context, articles []fetcher.Article) error {
-	for _, article := range articles {
-		id, inserted, err := s.insertArticle(ctx, article)
+func (s *Store) SaveArticles(ctx context.Context, articles []pipeline.ArticleMentions) error {
+	for _, am := range articles {
+		id, inserted, err := s.insertArticle(ctx, am.Article)
 		if err != nil {
 			return err
 		}
 		if !inserted {
-			// Already existed from a previous run; nothing new to index.
+			// Already existed from a previous run; nothing new to index or
+			// extract entities for.
 			continue
 		}
 
 		doc := search.Document{
 			ID:          strconv.FormatInt(id, 10),
-			URL:         article.URL,
-			Title:       article.Title,
-			Content:     article.Content,
-			SourceID:    article.SourceID,
-			PublishedAt: article.PublishedAt,
+			URL:         am.Article.URL,
+			Title:       am.Article.Title,
+			Content:     am.Article.Content,
+			SourceID:    am.Article.SourceID,
+			PublishedAt: am.Article.PublishedAt,
 		}
 		if err := s.indexer.Index(ctx, doc); err != nil {
 			log.Printf("store: failed to index article %d (will be retried by reconciliation): %v", id, err)
-			continue
-		}
-		if _, err := s.pool.Exec(ctx, `UPDATE articles SET indexed_at = now() WHERE id = $1`, id); err != nil {
+		} else if _, err := s.pool.Exec(ctx, `UPDATE articles SET indexed_at = now() WHERE id = $1`, id); err != nil {
 			log.Printf("store: indexed article %d but failed to record indexed_at: %v", id, err)
+		}
+
+		if err := s.saveMentions(ctx, id, am.Entities); err != nil {
+			log.Printf("store: failed to save entity mentions for article %d: %v", id, err)
 		}
 	}
 
@@ -100,4 +105,104 @@ func (s *Store) insertArticle(ctx context.Context, article fetcher.Article) (int
 	}
 
 	return id, true, nil
+}
+
+type entityKey struct {
+	name string
+	typ  string
+}
+
+// saveMentions upserts every distinct entity mentioned in the article,
+// writes one aggregated mentions row per (article, entity) — mention_count
+// and sentiment_score (averaged across that entity's occurrences) — and
+// records co-occurrence between every pair of distinct entities mentioned
+// in the article.
+func (s *Store) saveMentions(ctx context.Context, articleID int64, mentions []ner.Mention) error {
+	if len(mentions) == 0 {
+		return nil
+	}
+
+	type aggregate struct {
+		count        int
+		sentimentSum float64
+	}
+
+	aggregates := make(map[entityKey]*aggregate)
+	order := make([]entityKey, 0, len(mentions))
+
+	for _, m := range mentions {
+		if m.Text == "" || m.Type == "" {
+			continue
+		}
+		key := entityKey{name: m.Text, typ: m.Type}
+		a, ok := aggregates[key]
+		if !ok {
+			a = &aggregate{}
+			aggregates[key] = a
+			order = append(order, key)
+		}
+		a.count++
+		a.sentimentSum += m.SentimentScore
+	}
+
+	entityIDs := make([]int64, 0, len(order))
+	for _, key := range order {
+		a := aggregates[key]
+
+		entityID, err := s.upsertEntity(ctx, key.name, key.typ)
+		if err != nil {
+			return fmt.Errorf("upsert entity %s (%s): %w", key.name, key.typ, err)
+		}
+
+		sentiment := a.sentimentSum / float64(a.count)
+		if _, err := s.pool.Exec(ctx, `
+			INSERT INTO mentions (article_id, entity_id, sentiment_score, mention_count)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (article_id, entity_id) DO UPDATE SET sentiment_score = $3, mention_count = $4`,
+			articleID, entityID, sentiment, a.count,
+		); err != nil {
+			return fmt.Errorf("save mention for entity %d: %w", entityID, err)
+		}
+
+		entityIDs = append(entityIDs, entityID)
+	}
+
+	return s.saveCooccurrences(ctx, articleID, entityIDs)
+}
+
+func (s *Store) upsertEntity(ctx context.Context, name, entityType string) (int64, error) {
+	var id int64
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO entities (name, type)
+		VALUES ($1, $2::entity_type)
+		ON CONFLICT (name, type) DO UPDATE SET name = EXCLUDED.name
+		RETURNING id`,
+		name, entityType,
+	).Scan(&id)
+	return id, err
+}
+
+// saveCooccurrences records one row per canonical-ordered pair of distinct
+// entities mentioned in the same article.
+func (s *Store) saveCooccurrences(ctx context.Context, articleID int64, entityIDs []int64) error {
+	for i := 0; i < len(entityIDs); i++ {
+		for j := i + 1; j < len(entityIDs); j++ {
+			a, b := entityIDs[i], entityIDs[j]
+			if a == b {
+				continue
+			}
+			if a > b {
+				a, b = b, a
+			}
+			if _, err := s.pool.Exec(ctx, `
+				INSERT INTO entity_cooccurrence (article_id, entity_a_id, entity_b_id)
+				VALUES ($1, $2, $3)
+				ON CONFLICT (article_id, entity_a_id, entity_b_id) DO NOTHING`,
+				articleID, a, b,
+			); err != nil {
+				return fmt.Errorf("save cooccurrence (%d,%d): %w", a, b, err)
+			}
+		}
+	}
+	return nil
 }
