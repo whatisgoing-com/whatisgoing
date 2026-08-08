@@ -37,7 +37,7 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	}
 	t.Cleanup(pool.Close)
 
-	if _, err := pool.Exec(ctx, `TRUNCATE entity_cooccurrence, mentions, entities, articles, sources CASCADE`); err != nil {
+	if _, err := pool.Exec(ctx, `TRUNCATE entity_rollups, entity_cooccurrence, mentions, entities, articles, sources CASCADE`); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 

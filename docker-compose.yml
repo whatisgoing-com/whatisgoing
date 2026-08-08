@@ -62,6 +62,20 @@ services:
     depends_on:
       - core
 
+  # Computes hot-topics/reputation-trend rollups and exits — mirrors the
+  # k8s CronJob this becomes in production, not a long-running service.
+  # Run on demand: docker compose run --rm rollup
+  rollup:
+    build:
+      context: .
+      dockerfile: cmd/rollup/Dockerfile
+    environment:
+      DATABASE_URL: postgres://whatisgoing:whatisgoing@postgres:5432/whatisgoing?sslmode=disable
+    depends_on:
+      - postgres
+    profiles:
+      - tools
+
 volumes:
   postgres-data:
   meili-data:

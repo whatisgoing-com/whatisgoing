@@ -6,6 +6,7 @@ News analytics platform: scrapes news articles, extracts named entities (PERSON/
 
 - `cmd/core` — Go modular monolith: source scheduler, RSS/scraper fetcher, pipeline coordinator, internal JSON API.
 - `cmd/ui` — Go + htmx BFF, renders the public dashboard from `core`'s JSON API.
+- `cmd/rollup` — computes windowed entity-mention rollups (hot topics, reputation trend), then exits; run on a schedule rather than as a long-lived service.
 - `services/ner-sentiment` — Python (FastAPI): article extraction (`trafilatura`), NER (spaCy), sentence-level sentiment (DistilBERT).
 
 ## Ingestion sources
@@ -27,6 +28,14 @@ Postgres is the system of record (schema in `internal/core/store/postgres/migrat
 - **Sentiment**: `distilbert-base-uncased-finetuned-sst-2-english`, computed per sentence (via spaCy sentence boundaries in the same text) and attributed to every entity mentioned in that sentence — not whole-article sentiment.
 - **CPU-only**: no GPU, no LLM; model weights are baked into the image at build time so the container needs no network access at runtime.
 - **Latency**: benchmarked locally at ~150-370ms/article end-to-end (cold first request ~370ms, steady-state ~150ms), comfortably inside the ~1,000 articles/day budget.
+
+## Batch aggregation (hot topics, reputation trend)
+
+`cmd/rollup` recomputes `entity_rollups` — one row per (entity, window, window start) with a mention count and averaged sentiment — for `day`/`week`/`month`/`year` windows, joining `mentions` and `articles` and grouping by `date_trunc`. It always recomputes every window from scratch rather than updating incrementally; at v1's ~1,000 articles/day volume that's cheap and stays correct-by-construction. It's meant to run on a schedule (a k8s CronJob in production) and exit, not as a long-lived process — running it twice in a row is safe (`ON CONFLICT ... DO UPDATE`, verified idempotent).
+
+This powers two query shapes, both implemented as `RollupStore` methods ready for an API layer to call: `TopEntities` (ranked mention frequency for a window — "hot topics/persons/orgs") and `ReputationTrend` (an entity's sentiment over time within a window granularity).
+
+Run it locally against the compose stack: `docker compose run --rm rollup`.
 
 ## Local development
 
