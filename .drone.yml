@@ -12,9 +12,27 @@ trigger:
       - go.mod
       - go.sum
 
+services:
+  - name: postgres
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: whatisgoing
+      POSTGRES_PASSWORD: whatisgoing
+      POSTGRES_DB: whatisgoing
+
+  - name: meilisearch
+    image: getmeili/meilisearch:v1.11
+    environment:
+      MEILI_MASTER_KEY: ci-master-key
+      MEILI_ENV: development
+
 steps:
   - name: test
     image: golang:1.25-alpine
+    environment:
+      TEST_DATABASE_URL: postgres://whatisgoing:whatisgoing@postgres:5432/whatisgoing?sslmode=disable
+      TEST_MEILISEARCH_URL: http://meilisearch:7700
+      TEST_MEILISEARCH_KEY: ci-master-key
     commands:
       - go build ./cmd/core/... ./internal/core/...
       - go vet ./cmd/core/... ./internal/core/...

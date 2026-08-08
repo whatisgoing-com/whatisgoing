@@ -33,7 +33,11 @@ services:
       CORE_PORT: "8080"
       DATABASE_URL: postgres://whatisgoing:whatisgoing@postgres:5432/whatisgoing?sslmode=disable
       MEILISEARCH_URL: http://meilisearch:7700
+      MEILISEARCH_KEY: dev-master-key
       NER_SENTIMENT_URL: http://ner-sentiment:8000
+      SOURCES_CONFIG_PATH: /configs/sources.yaml
+    volumes:
+      - ./configs:/configs:ro
     ports:
       - "8080:8080"
     depends_on:
