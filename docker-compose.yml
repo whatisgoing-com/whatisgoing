@@ -44,6 +44,11 @@ services:
       - postgres
       - meilisearch
       - ner-sentiment
+    # On a fresh volume, postgres can still be running initdb when core
+    # starts — depends_on only waits for the container to start, not for
+    # postgres to actually accept connections. Self-heal rather than
+    # requiring a manual restart.
+    restart: on-failure
 
   ui:
     build:

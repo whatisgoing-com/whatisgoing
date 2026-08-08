@@ -41,15 +41,17 @@ func main() {
 		log.Printf("no sources loaded from %s (%v) — ingestion will be a no-op until one is provided", sourcesPath, err)
 	}
 
-	pool, err := pgxpool.New(ctx, mustEnv("DATABASE_URL"))
+	databaseURL := mustEnv("DATABASE_URL")
+
+	if err := postgresstore.Migrate(ctx, databaseURL); err != nil {
+		log.Fatalf("run migrations: %v", err)
+	}
+
+	pool, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
 		log.Fatalf("connect to postgres: %v", err)
 	}
 	defer pool.Close()
-
-	if err := postgresstore.Migrate(ctx, pool); err != nil {
-		log.Fatalf("run migrations: %v", err)
-	}
 
 	indexer := search.NewMeiliIndexer(mustEnv("MEILISEARCH_URL"), os.Getenv("MEILISEARCH_KEY"), "articles")
 	store := postgresstore.NewStore(pool, indexer)

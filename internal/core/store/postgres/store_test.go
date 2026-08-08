@@ -24,15 +24,16 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	}
 
 	ctx := context.Background()
+
+	if err := Migrate(ctx, dsn); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
 	t.Cleanup(pool.Close)
-
-	if err := Migrate(ctx, pool); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
 
 	if _, err := pool.Exec(ctx, `TRUNCATE entity_cooccurrence, mentions, entities, articles, sources CASCADE`); err != nil {
 		t.Fatalf("truncate: %v", err)

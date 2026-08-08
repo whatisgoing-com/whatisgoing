@@ -1,3 +1,4 @@
+-- +goose Up
 CREATE TABLE sources (
     id         text PRIMARY KEY,
     name       text NOT NULL,
@@ -62,3 +63,11 @@ CREATE TABLE entity_cooccurrence (
 );
 CREATE INDEX entity_cooccurrence_entity_a_idx ON entity_cooccurrence (entity_a_id);
 CREATE INDEX entity_cooccurrence_entity_b_idx ON entity_cooccurrence (entity_b_id);
+
+-- +goose Down
+DROP TABLE entity_cooccurrence;
+DROP TABLE mentions;
+DROP TABLE entities;
+DROP TYPE entity_type;
+DROP TABLE articles;
+DROP TABLE sources;
