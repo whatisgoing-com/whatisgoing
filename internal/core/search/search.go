@@ -20,3 +20,10 @@ type Document struct {
 type Indexer interface {
 	Index(ctx context.Context, doc Document) error
 }
+
+// Searcher runs full-text queries against already-indexed documents.
+// Separate from Indexer (write-side) so read-only callers, like the core
+// API's search endpoint, don't need to depend on write capability.
+type Searcher interface {
+	Search(ctx context.Context, query string, limit int) ([]Document, error)
+}
