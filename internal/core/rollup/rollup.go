@@ -21,6 +21,17 @@ const (
 // Windows lists every granularity a full recompute covers.
 var Windows = []Window{Day, Week, Month, Year}
 
+// ParseWindow validates s against the known Window values.
+func ParseWindow(s string) (Window, bool) {
+	w := Window(s)
+	for _, valid := range Windows {
+		if w == valid {
+			return w, true
+		}
+	}
+	return "", false
+}
+
 // EntityRollup is one (entity, window, window start) aggregate: how many
 // times the entity was mentioned in that window, and its average
 // sentiment.

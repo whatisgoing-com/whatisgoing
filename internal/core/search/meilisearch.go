@@ -25,3 +25,16 @@ func (m *MeiliIndexer) Index(ctx context.Context, doc Document) error {
 	})
 	return err
 }
+
+func (m *MeiliIndexer) Search(ctx context.Context, query string, limit int) ([]Document, error) {
+	resp, err := m.client.Index(m.index).SearchWithContext(ctx, query, &meilisearch.SearchRequest{Limit: int64(limit)})
+	if err != nil {
+		return nil, err
+	}
+
+	docs := make([]Document, 0, len(resp.Hits))
+	if err := resp.Hits.Decode(&docs); err != nil {
+		return nil, err
+	}
+	return docs, nil
+}

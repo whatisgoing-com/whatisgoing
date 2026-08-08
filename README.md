@@ -33,9 +33,19 @@ Postgres is the system of record (schema in `internal/core/store/postgres/migrat
 
 `cmd/rollup` recomputes `entity_rollups` — one row per (entity, window, window start) with a mention count and averaged sentiment — for `day`/`week`/`month`/`year` windows, joining `mentions` and `articles` and grouping by `date_trunc`. It always recomputes every window from scratch rather than updating incrementally; at v1's ~1,000 articles/day volume that's cheap and stays correct-by-construction. It's meant to run on a schedule (a k8s CronJob in production) and exit, not as a long-lived process — running it twice in a row is safe (`ON CONFLICT ... DO UPDATE`, verified idempotent).
 
-This powers two query shapes, both implemented as `RollupStore` methods ready for an API layer to call: `TopEntities` (ranked mention frequency for a window — "hot topics/persons/orgs") and `ReputationTrend` (an entity's sentiment over time within a window granularity).
+This powers two query shapes, exposed by `core`'s JSON API (below) and implemented as `RollupStore` methods: `TopEntities` (ranked mention frequency for a window — "hot topics/persons/orgs") and `ReputationTrend` (an entity's sentiment over time within a window granularity).
 
 Run it locally against the compose stack: `docker compose run --rm rollup`.
+
+## Core API + UI/BFF
+
+`core`'s internal JSON API (`internal/core/api`), consumed only by `cmd/ui`:
+
+- `GET /api/trending?window=day&limit=20` — most-mentioned entities in the current window (`day`/`week`/`month`/`year`).
+- `GET /api/entities/{id}?window=day` — an entity's detail + reputation trend at that window granularity. 404s if the entity doesn't exist or hasn't been through a rollup yet.
+- `GET /api/search?q=...&limit=20` — full-text article search via Meilisearch.
+
+`cmd/ui` is a Go + htmx BFF (`internal/ui/coreclient` is its HTTP client for the API above) that server-renders three pages: trending (with day/week/month/year tabs, htmx-swapped without a full reload), entity detail (mention history + sentiment trend table), and search (htmx-submitted, partial results swap). No auth/admin UI in v1 — read-only public dashboard.
 
 ## Local development
 

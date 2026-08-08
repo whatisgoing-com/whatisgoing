@@ -92,9 +92,11 @@ func main() {
 	}
 	go reconcileSched.Run(ctx)
 
+	rollupStore := postgresstore.NewRollupStore(pool)
+
 	srv := &http.Server{
 		Addr:    ":" + port,
-		Handler: api.NewRouter(),
+		Handler: api.NewRouter(rollupStore, indexer),
 	}
 
 	go func() {

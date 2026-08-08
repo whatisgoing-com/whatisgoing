@@ -40,3 +40,18 @@ func TestWindowStart_WeekHandlesSundayCorrectly(t *testing.T) {
 		t.Errorf("WindowStart(Week, %v) = %v, want %v", sunday, got, want)
 	}
 }
+
+func TestParseWindow(t *testing.T) {
+	for _, s := range []string{"day", "week", "month", "year"} {
+		t.Run(s, func(t *testing.T) {
+			w, ok := ParseWindow(s)
+			if !ok || string(w) != s {
+				t.Errorf("ParseWindow(%q) = (%q, %v), want (%q, true)", s, w, ok, s)
+			}
+		})
+	}
+
+	if _, ok := ParseWindow("decade"); ok {
+		t.Error("ParseWindow(\"decade\") should reject an unknown window")
+	}
+}

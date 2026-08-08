@@ -74,6 +74,7 @@ trigger:
   paths:
     include:
       - cmd/ui/**
+      - internal/ui/**
       - go.mod
       - go.sum
 
@@ -81,8 +82,9 @@ steps:
   - name: test
     image: golang:1.25-alpine
     commands:
-      - go build ./cmd/ui/...
-      - go vet ./cmd/ui/...
+      - go build ./cmd/ui/... ./internal/ui/...
+      - go vet ./cmd/ui/... ./internal/ui/...
+      - go test ./internal/ui/...
 
   - name: build-and-push
     image: plugins/docker
