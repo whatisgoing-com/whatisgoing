@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"strconv"
 	"time"
@@ -37,7 +38,7 @@ func (s *Store) UpsertSources(ctx context.Context, sources []fetcher.Source) err
 			src.ID, src.Name, src.URL, string(src.Type),
 		)
 		if err != nil {
-			return err
+			return fmt.Errorf("upsert source %s: %w", src.ID, err)
 		}
 	}
 	return nil
