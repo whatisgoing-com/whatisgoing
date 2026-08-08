@@ -122,6 +122,15 @@ trigger:
       - services/ner-sentiment/**
 
 steps:
+  - name: test
+    image: python:3.11-slim
+    commands:
+      - apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
+      - pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+      - pip install --no-cache-dir -r services/ner-sentiment/requirements-dev.txt
+      - python -m spacy download en_core_web_sm
+      - cd services/ner-sentiment && python -m pytest -q
+
   - name: build-and-push
     image: plugins/docker
     settings:
