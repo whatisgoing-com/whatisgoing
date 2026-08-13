@@ -1,6 +1,10 @@
 package api
 
-import "github.com/whatisgoing-com/whatisgoing/internal/core/rollup"
+import (
+	"time"
+
+	"github.com/whatisgoing-com/whatisgoing/internal/core/rollup"
+)
 
 type entityRollupJSON struct {
 	ID             int64   `json:"id"`
@@ -32,4 +36,38 @@ type sentimentBreakdownJSON struct {
 	Positive int `json:"positive"`
 	Neutral  int `json:"neutral"`
 	Negative int `json:"negative"`
+}
+
+type sourceBreakdownJSON struct {
+	SourceID     string  `json:"source_id"`
+	SourceName   string  `json:"source_name"`
+	MentionCount int     `json:"mention_count"`
+	AvgSentiment float64 `json:"avg_sentiment"`
+}
+
+func toSourceBreakdownJSON(b rollup.SourceBreakdown) sourceBreakdownJSON {
+	return sourceBreakdownJSON{
+		SourceID:     b.SourceID,
+		SourceName:   b.SourceName,
+		MentionCount: b.MentionCount,
+		AvgSentiment: b.AvgSentiment,
+	}
+}
+
+type recentArticleJSON struct {
+	ID          int64  `json:"id"`
+	Title       string `json:"title"`
+	URL         string `json:"url"`
+	SourceName  string `json:"source_name"`
+	PublishedAt string `json:"published_at"`
+}
+
+func toRecentArticleJSON(a rollup.RecentArticle) recentArticleJSON {
+	return recentArticleJSON{
+		ID:          a.ID,
+		Title:       a.Title,
+		URL:         a.URL,
+		SourceName:  a.SourceName,
+		PublishedAt: a.PublishedAt.Format(time.RFC3339),
+	}
 }

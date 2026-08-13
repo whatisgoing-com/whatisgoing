@@ -218,3 +218,82 @@ func (s *RollupStore) SentimentBreakdown(ctx context.Context, window rollup.Wind
 	}
 	return b, nil
 }
+
+// SourceBreakdown returns one entity's mention count + average sentiment
+// per source, across all time, ranked by mention count descending — the
+// entity detail page's by-source breakdown.
+func (s *RollupStore) SourceBreakdown(ctx context.Context, entityID int64) ([]rollup.SourceBreakdown, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT s.id, s.name, COUNT(*), AVG(m.sentiment_score)
+		FROM mentions m
+		JOIN articles a ON a.id = m.article_id
+		JOIN sources s ON s.id = a.source_id
+		WHERE m.entity_id = $1
+		GROUP BY s.id, s.name
+		ORDER BY COUNT(*) DESC`,
+		entityID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query source breakdown: %w", err)
+	}
+	defer rows.Close()
+
+	var results []rollup.SourceBreakdown
+	for rows.Next() {
+		var b rollup.SourceBreakdown
+		if err := rows.Scan(&b.SourceID, &b.SourceName, &b.MentionCount, &b.AvgSentiment); err != nil {
+			return nil, fmt.Errorf("scan source breakdown: %w", err)
+		}
+		results = append(results, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate source breakdown: %w", err)
+	}
+	return results, nil
+}
+
+// RecentArticles returns the most recently published articles, newest
+// first, optionally filtered to ones mentioning a single entity. entityID
+// == 0 means unfiltered — article IDs are bigserial (start at 1), so 0 is
+// never a real one.
+func (s *RollupStore) RecentArticles(ctx context.Context, entityID int64, limit int) ([]rollup.RecentArticle, error) {
+	var rows pgx.Rows
+	var err error
+	if entityID == 0 {
+		rows, err = s.pool.Query(ctx, `
+			SELECT a.id, a.title, a.url, s.name, COALESCE(a.published_at, a.fetched_at)
+			FROM articles a
+			JOIN sources s ON s.id = a.source_id
+			ORDER BY COALESCE(a.published_at, a.fetched_at) DESC
+			LIMIT $1`,
+			limit,
+		)
+	} else {
+		rows, err = s.pool.Query(ctx, `
+			SELECT a.id, a.title, a.url, s.name, COALESCE(a.published_at, a.fetched_at)
+			FROM articles a
+			JOIN sources s ON s.id = a.source_id
+			JOIN mentions m ON m.article_id = a.id AND m.entity_id = $2
+			ORDER BY COALESCE(a.published_at, a.fetched_at) DESC
+			LIMIT $1`,
+			limit, entityID,
+		)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query recent articles: %w", err)
+	}
+	defer rows.Close()
+
+	var results []rollup.RecentArticle
+	for rows.Next() {
+		var a rollup.RecentArticle
+		if err := rows.Scan(&a.ID, &a.Title, &a.URL, &a.SourceName, &a.PublishedAt); err != nil {
+			return nil, fmt.Errorf("scan recent article: %w", err)
+		}
+		results = append(results, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate recent articles: %w", err)
+	}
+	return results, nil
+}

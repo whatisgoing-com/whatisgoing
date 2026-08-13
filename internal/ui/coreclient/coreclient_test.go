@@ -146,3 +146,59 @@ func TestClient_SearchEntities_ParsesResponse(t *testing.T) {
 		t.Errorf("unexpected results: %+v", results)
 	}
 }
+
+func TestClient_SourceBreakdown_ParsesResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/entities/42/sources" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		json.NewEncoder(w).Encode([]SourceBreakdown{{SourceID: "bbc-world", SourceName: "BBC World News", MentionCount: 5, AvgSentiment: -0.3}})
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, nil)
+	results, err := client.SourceBreakdown(context.Background(), 42)
+	if err != nil {
+		t.Fatalf("SourceBreakdown() error = %v", err)
+	}
+	if len(results) != 1 || results[0].SourceName != "BBC World News" {
+		t.Errorf("unexpected results: %+v", results)
+	}
+}
+
+func TestClient_RecentArticles_OmitsEntityIDWhenZero(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/articles/recent" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.URL.Query().Has("entity_id") {
+			t.Errorf("expected no entity_id param for entityID=0, got %q", r.URL.Query().Get("entity_id"))
+		}
+		json.NewEncoder(w).Encode([]RecentArticle{{ID: 1, Title: "Headline", SourceName: "BBC World News"}})
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, nil)
+	results, err := client.RecentArticles(context.Background(), 0, 10)
+	if err != nil {
+		t.Fatalf("RecentArticles() error = %v", err)
+	}
+	if len(results) != 1 || results[0].Title != "Headline" {
+		t.Errorf("unexpected results: %+v", results)
+	}
+}
+
+func TestClient_RecentArticles_SetsEntityIDWhenNonZero(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("entity_id"); got != "42" {
+			t.Errorf("expected entity_id=42, got %q", got)
+		}
+		json.NewEncoder(w).Encode([]RecentArticle{})
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, nil)
+	if _, err := client.RecentArticles(context.Background(), 42, 10); err != nil {
+		t.Fatalf("RecentArticles() error = %v", err)
+	}
+}

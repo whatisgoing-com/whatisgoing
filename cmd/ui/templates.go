@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"time"
 
 	"github.com/whatisgoing-com/whatisgoing/internal/ui/coreclient"
 )
@@ -15,42 +16,21 @@ const layoutHeader = `<!doctype html>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>whatisgoing.com</title>
+	<link rel="stylesheet" href="/static/style.css">
 	<script src="https://unpkg.com/htmx.org@2.0.3"></script>
 	<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-	<style>
-		*, *::before, *::after { box-sizing: border-box; }
-		body { font-family: system-ui, sans-serif; max-width: 820px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
-		nav a { margin-right: 1rem; display: inline-block; padding: 0.4rem 0; }
-		table { border-collapse: collapse; width: 100%; }
-		th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #ddd; }
-		.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 1rem 0; }
-		.table-scroll table { min-width: 420px; }
-		.tabs a { margin-right: 0.75rem; text-decoration: none; display: inline-block; padding: 0.4rem 0.1rem; }
-		.tabs a.active { font-weight: bold; text-decoration: underline; }
-		.sentiment-positive { color: #1a7f37; }
-		.sentiment-negative { color: #b91c1c; }
-		ul { list-style: none; padding: 0; }
-		li { padding: 0.4rem 0; border-bottom: 1px solid #eee; }
-		.sentiment-overview { background: #f6f8fa; border-radius: 8px; padding: 0.75rem 1rem; margin: 1rem 0; }
-		.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; margin: 1rem 0; }
-		.chart-box { height: 260px; min-width: 0; }
-		.entity-search { position: relative; margin: 1rem 0; }
-		.entity-search input { width: 100%; padding: 0.6rem; font-size: 1rem; }
-		.entity-search-results { position: absolute; z-index: 10; background: #fff; border: 1px solid #ddd; width: 100%; }
-		.entity-search-results li { padding: 0.4rem 0.6rem; }
-		@media (max-width: 480px) {
-			body { margin: 1rem auto; padding: 0 0.75rem; }
-			.charts { grid-template-columns: 1fr; }
-			.chart-box { height: 220px; }
-		}
-	</style>
 </head>
-<body>
-	<nav>
-		<a href="/">Trending</a>
-		<a href="/search">Search</a>
-	</nav>
-	<main>
+<body class="bg-gray-50 text-gray-900 antialiased">
+	<header class="border-b border-gray-200 bg-white">
+		<div class="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
+			<a href="/" class="text-lg font-semibold tracking-tight">whatisgoing<span class="text-blue-600">.com</span></a>
+			<nav class="flex gap-1">
+				<a href="/" class="rounded-md px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900">Trending</a>
+				<a href="/search" class="rounded-md px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900">Search</a>
+			</nav>
+		</div>
+	</header>
+	<main class="mx-auto max-w-5xl space-y-6 px-4 py-8">
 `
 
 const layoutFooter = `
@@ -60,47 +40,101 @@ const layoutFooter = `
 `
 
 var tmpl = template.Must(template.New("ui").Parse(`
+{{define "typeBadge"}}
+{{if eq . "PERSON"}}<span class="inline-block rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">PERSON</span>
+{{else if eq . "ORG"}}<span class="inline-block rounded-full bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700">ORG</span>
+{{else}}<span class="inline-block rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">{{.}}</span>
+{{end}}
+{{end}}
+
+{{define "recentArticles"}}
+{{if .}}
+<ul class="divide-y divide-gray-100">
+	{{range .}}
+	<li class="py-2.5">
+		<a href="{{.URL}}" target="_blank" rel="noopener" class="font-medium text-gray-900 hover:text-blue-600">{{.Title}}</a>
+		<div class="text-xs text-gray-500">{{.SourceName}} &middot; {{.PublishedAt}}</div>
+	</li>
+	{{end}}
+</ul>
+{{else}}
+<p class="text-sm text-gray-500">No articles yet.</p>
+{{end}}
+{{end}}
+
 {{define "trendingContent"}}
-<h1>Trending</h1>
-
-<div class="entity-search">
-	<input type="search" placeholder="Find an entity&hellip;" autocomplete="off"
-		hx-get="/entities/search" hx-trigger="keyup changed delay:300ms, search" hx-target="#entity-search-results" name="q">
-	<div id="entity-search-results"></div>
+<div class="flex flex-wrap items-center justify-between gap-4">
+	<h1 class="text-2xl font-bold tracking-tight">Trending</h1>
+	<div class="entity-search relative w-full sm:w-72">
+		<input type="search" placeholder="Find an entity&hellip;" autocomplete="off"
+			class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+			hx-get="/entities/search" hx-trigger="keyup changed delay:300ms, search" hx-target="#entity-search-results" name="q">
+		<div id="entity-search-results" class="absolute z-10 mt-1 w-full"></div>
+	</div>
 </div>
 
-<div class="tabs">
-	{{range .Windows}}<a href="/?window={{.Value}}" hx-get="/?window={{.Value}}" hx-target="#trending-panel" hx-push-url="true" class="{{if .Active}}active{{end}}">{{.Label}}</a>{{end}}
+<div class="flex gap-1 border-b border-gray-200">
+	{{range .Windows}}<a href="/?window={{.Value}}" hx-get="/?window={{.Value}}" hx-target="#trending-panel" hx-push-url="true"
+		class="-mb-px border-b-2 px-3 py-2 text-sm font-medium {{if .Active}}border-blue-600 text-blue-600{{else}}border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700{{end}}">{{.Label}}</a>{{end}}
 </div>
-<div id="trending-panel">
+
+<div id="trending-panel" class="space-y-6">
 {{template "trendingPanel" .}}
 </div>
 {{end}}
 
 {{define "trendingPanel"}}
-<section class="sentiment-overview">
-	<strong>Sentiment overview:</strong>
-	{{.Sentiment.Positive}} positive &middot; {{.Sentiment.Neutral}} neutral &middot; {{.Sentiment.Negative}} negative
-	&mdash; average {{printf "%.2f" .Sentiment.Average}}
+<section class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+	<div class="rounded-xl border border-gray-200 bg-white p-4 text-center">
+		<div class="text-2xl font-bold text-green-600">{{.Sentiment.Positive}}</div>
+		<div class="text-xs font-medium uppercase tracking-wide text-gray-500">Positive</div>
+	</div>
+	<div class="rounded-xl border border-gray-200 bg-white p-4 text-center">
+		<div class="text-2xl font-bold text-gray-500">{{.Sentiment.Neutral}}</div>
+		<div class="text-xs font-medium uppercase tracking-wide text-gray-500">Neutral</div>
+	</div>
+	<div class="rounded-xl border border-gray-200 bg-white p-4 text-center">
+		<div class="text-2xl font-bold text-red-600">{{.Sentiment.Negative}}</div>
+		<div class="text-xs font-medium uppercase tracking-wide text-gray-500">Negative</div>
+	</div>
+	<div class="rounded-xl border border-gray-200 bg-white p-4 text-center">
+		<div class="text-2xl font-bold {{if gt .Sentiment.Average 0.0}}text-green-600{{else if lt .Sentiment.Average 0.0}}text-red-600{{else}}text-gray-500{{end}}">{{printf "%.2f" .Sentiment.Average}}</div>
+		<div class="text-xs font-medium uppercase tracking-wide text-gray-500">Avg sentiment</div>
+	</div>
 </section>
 
-<div class="charts">
-	<div class="chart-box"><canvas id="bar-chart"></canvas></div>
-	<div class="chart-box"><canvas id="trend-chart"></canvas></div>
-	<div class="chart-box"><canvas id="sentiment-pie-chart"></canvas></div>
-</div>
+<section class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+	<div class="rounded-xl border border-gray-200 bg-white p-4">
+		<h2 class="mb-2 text-sm font-semibold text-gray-700">Top entities by mentions</h2>
+		<div class="h-64"><canvas id="bar-chart"></canvas></div>
+	</div>
+	<div class="rounded-xl border border-gray-200 bg-white p-4">
+		<h2 class="mb-2 text-sm font-semibold text-gray-700">Mentions &amp; sentiment over time</h2>
+		<div class="h-64"><canvas id="trend-chart"></canvas></div>
+	</div>
+	<div class="rounded-xl border border-gray-200 bg-white p-4">
+		<h2 class="mb-2 text-sm font-semibold text-gray-700">Overall sentiment breakdown</h2>
+		<div class="h-64"><canvas id="sentiment-pie-chart"></canvas></div>
+	</div>
+</section>
 
-<div class="table-scroll">
-{{template "entityList" .Entities}}
-</div>
+<section class="rounded-xl border border-gray-200 bg-white p-4">
+	<h2 class="mb-3 text-sm font-semibold text-gray-700">Entities</h2>
+	{{template "entityList" .Entities}}
+</section>
+
+<section class="rounded-xl border border-gray-200 bg-white p-4">
+	<h2 class="mb-1 text-sm font-semibold text-gray-700">Recent articles</h2>
+	{{template "recentArticles" .RecentArticles}}
+</section>
 
 <script>
 (function() {
 	const chartData = {{.ChartDataJSON}};
 	new Chart(document.getElementById('bar-chart'), {
 		type: 'bar',
-		data: { labels: chartData.labels, datasets: [{ label: 'Mentions', data: chartData.mentionCounts, backgroundColor: '#3b82f6' }] },
-		options: { maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false }, title: { display: true, text: 'Top entities by mentions' } } }
+		data: { labels: chartData.labels, datasets: [{ label: 'Mentions', data: chartData.mentionCounts, backgroundColor: '#3b82f6', borderRadius: 4 }] },
+		options: { maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } } }
 	});
 	new Chart(document.getElementById('trend-chart'), {
 		type: 'line',
@@ -108,12 +142,11 @@ var tmpl = template.Must(template.New("ui").Parse(`
 			labels: chartData.trendLabels,
 			datasets: [
 				{ label: 'Mentions', data: chartData.trendMentions, borderColor: '#3b82f6', yAxisID: 'y' },
-				{ label: 'Avg sentiment', data: chartData.trendSentiment, borderColor: '#1a7f37', yAxisID: 'y1' }
+				{ label: 'Avg sentiment', data: chartData.trendSentiment, borderColor: '#16a34a', yAxisID: 'y1' }
 			]
 		},
 		options: {
 			maintainAspectRatio: false,
-			plugins: { title: { display: true, text: 'Mentions & sentiment over time' } },
 			scales: {
 				y: { type: 'linear', position: 'left', beginAtZero: true },
 				y1: { type: 'linear', position: 'right', min: -1, max: 1, grid: { drawOnChartArea: false } }
@@ -124,58 +157,110 @@ var tmpl = template.Must(template.New("ui").Parse(`
 		type: 'pie',
 		data: {
 			labels: ['Positive', 'Neutral', 'Negative'],
-			datasets: [{ data: [chartData.sentimentPositive, chartData.sentimentNeutral, chartData.sentimentNegative], backgroundColor: ['#1a7f37', '#9ca3af', '#b91c1c'] }]
+			datasets: [{ data: [chartData.sentimentPositive, chartData.sentimentNeutral, chartData.sentimentNegative], backgroundColor: ['#16a34a', '#9ca3af', '#dc2626'] }]
 		},
-		options: { maintainAspectRatio: false, plugins: { title: { display: true, text: 'Overall sentiment breakdown' } } }
+		options: { maintainAspectRatio: false }
 	});
 })();
 </script>
 {{end}}
 
 {{define "entityList"}}
-<table>
-	<thead><tr><th>Entity</th><th>Type</th><th>Mentions</th><th>Sentiment</th></tr></thead>
-	<tbody>
+<div class="overflow-x-auto">
+<table class="w-full text-sm">
+	<thead>
+		<tr class="border-b border-gray-200 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
+			<th class="py-2 pr-4">Entity</th><th class="py-2 pr-4">Type</th><th class="py-2 pr-4 text-right">Mentions</th><th class="py-2 text-right">Sentiment</th>
+		</tr>
+	</thead>
+	<tbody class="divide-y divide-gray-100">
 	{{range .}}
-		<tr>
-			<td><a href="/entities/{{.ID}}">{{.Name}}</a></td>
-			<td>{{.Type}}</td>
-			<td>{{.MentionCount}}</td>
-			<td class="{{if gt .SentimentScore 0.0}}sentiment-positive{{else if lt .SentimentScore 0.0}}sentiment-negative{{end}}">{{printf "%.2f" .SentimentScore}}</td>
+		<tr class="hover:bg-gray-50">
+			<td class="py-2 pr-4"><a href="/entities/{{.ID}}" class="font-medium text-gray-900 hover:text-blue-600">{{.Name}}</a></td>
+			<td class="py-2 pr-4">{{template "typeBadge" .Type}}</td>
+			<td class="py-2 pr-4 text-right tabular-nums">{{.MentionCount}}</td>
+			<td class="py-2 text-right tabular-nums {{if gt .SentimentScore 0.0}}text-green-600{{else if lt .SentimentScore 0.0}}text-red-600{{else}}text-gray-500{{end}}">{{printf "%.2f" .SentimentScore}}</td>
 		</tr>
 	{{else}}
-		<tr><td colspan="4">No trending entities yet.</td></tr>
+		<tr><td colspan="4" class="py-4 text-center text-gray-500">No trending entities yet.</td></tr>
 	{{end}}
 	</tbody>
 </table>
+</div>
 {{end}}
 
 {{define "entitySearchResults"}}
 {{if .}}
-<ul class="entity-search-results">
+<ul class="divide-y divide-gray-100 rounded-lg border border-gray-200 bg-white shadow-lg">
 	{{range .}}
-		<li><a href="/entities/{{.ID}}">{{.Name}}</a> <small>({{.Type}})</small></li>
+		<li><a href="/entities/{{.ID}}" class="flex items-center justify-between px-3 py-2 text-sm hover:bg-gray-50"><span class="font-medium text-gray-900">{{.Name}}</span>{{template "typeBadge" .Type}}</a></li>
 	{{end}}
 </ul>
 {{end}}
 {{end}}
 
+{{define "sourceBreakdown"}}
+{{if .}}
+<ul class="space-y-3">
+	{{range .}}
+	<li>
+		<div class="flex items-center justify-between text-sm">
+			<span class="font-medium text-gray-900">{{.SourceName}}</span>
+			<span class="tabular-nums {{if gt .AvgSentiment 0.0}}text-green-600{{else if lt .AvgSentiment 0.0}}text-red-600{{else}}text-gray-500{{end}}">{{.MentionCount}} &middot; {{printf "%.2f" .AvgSentiment}}</span>
+		</div>
+		<div class="mt-1 h-1.5 w-full rounded-full bg-gray-100">
+			<div class="h-1.5 rounded-full bg-blue-500" style="width: {{.BarPercent}}%"></div>
+		</div>
+	</li>
+	{{end}}
+</ul>
+{{else}}
+<p class="text-sm text-gray-500">No source data yet.</p>
+{{end}}
+{{end}}
+
 {{define "entityContent"}}
-<p><a href="/">&larr; Trending</a></p>
-<h1>{{.Detail.Name}} <small>({{.Detail.Type}})</small></h1>
-<div class="charts">
-	<div class="chart-box"><canvas id="entity-trend-chart"></canvas></div>
-	<div class="chart-box"><canvas id="entity-sentiment-pie-chart"></canvas></div>
+<p><a href="/" class="text-sm text-blue-600 hover:underline">&larr; Trending</a></p>
+<div class="flex items-center gap-2">
+	<h1 class="text-2xl font-bold tracking-tight">{{.Detail.Name}}</h1>
+	{{template "typeBadge" .Detail.Type}}
 </div>
-<div class="table-scroll">
-<table>
-	<thead><tr><th>Date</th><th>Mentions</th><th>Sentiment</th></tr></thead>
-	<tbody>
+
+<section class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+	<div class="rounded-xl border border-gray-200 bg-white p-4">
+		<h2 class="mb-2 text-sm font-semibold text-gray-700">Mentions &amp; sentiment over time</h2>
+		<div class="h-64"><canvas id="entity-trend-chart"></canvas></div>
+	</div>
+	<div class="rounded-xl border border-gray-200 bg-white p-4">
+		<h2 class="mb-2 text-sm font-semibold text-gray-700">Sentiment breakdown (latest window)</h2>
+		<div class="h-64"><canvas id="entity-sentiment-pie-chart"></canvas></div>
+	</div>
+</section>
+
+<section class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+	<div class="rounded-xl border border-gray-200 bg-white p-4">
+		<h2 class="mb-3 text-sm font-semibold text-gray-700">By source</h2>
+		{{template "sourceBreakdown" .SourceBreakdown}}
+	</div>
+	<div class="rounded-xl border border-gray-200 bg-white p-4">
+		<h2 class="mb-1 text-sm font-semibold text-gray-700">Recent articles</h2>
+		{{template "recentArticles" .RecentArticles}}
+	</div>
+</section>
+
+<div class="overflow-x-auto rounded-xl border border-gray-200 bg-white p-4">
+<table class="w-full text-sm">
+	<thead>
+		<tr class="border-b border-gray-200 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
+			<th class="py-2 pr-4">Date</th><th class="py-2 pr-4 text-right">Mentions</th><th class="py-2 text-right">Sentiment</th>
+		</tr>
+	</thead>
+	<tbody class="divide-y divide-gray-100">
 	{{range .Detail.Trend}}
 		<tr>
-			<td>{{.WindowStart}}</td>
-			<td>{{.MentionCount}}</td>
-			<td class="{{if gt .SentimentScore 0.0}}sentiment-positive{{else if lt .SentimentScore 0.0}}sentiment-negative{{end}}">{{printf "%.2f" .SentimentScore}}</td>
+			<td class="py-2 pr-4">{{.WindowStart}}</td>
+			<td class="py-2 pr-4 text-right tabular-nums">{{.MentionCount}}</td>
+			<td class="py-2 text-right tabular-nums {{if gt .SentimentScore 0.0}}text-green-600{{else if lt .SentimentScore 0.0}}text-red-600{{else}}text-gray-500{{end}}">{{printf "%.2f" .SentimentScore}}</td>
 		</tr>
 	{{end}}
 	</tbody>
@@ -190,12 +275,11 @@ var tmpl = template.Must(template.New("ui").Parse(`
 			labels: chartData.labels,
 			datasets: [
 				{ label: 'Mentions', data: chartData.mentions, borderColor: '#3b82f6', yAxisID: 'y' },
-				{ label: 'Sentiment', data: chartData.sentiment, borderColor: '#1a7f37', yAxisID: 'y1' }
+				{ label: 'Sentiment', data: chartData.sentiment, borderColor: '#16a34a', yAxisID: 'y1' }
 			]
 		},
 		options: {
 			maintainAspectRatio: false,
-			plugins: { title: { display: true, text: 'Mentions & sentiment over time' } },
 			scales: {
 				y: { type: 'linear', position: 'left', beginAtZero: true },
 				y1: { type: 'linear', position: 'right', min: -1, max: 1, grid: { drawOnChartArea: false } }
@@ -206,38 +290,39 @@ var tmpl = template.Must(template.New("ui").Parse(`
 		type: 'pie',
 		data: {
 			labels: ['Positive', 'Neutral', 'Negative'],
-			datasets: [{ data: [chartData.sentimentPositive, chartData.sentimentNeutral, chartData.sentimentNegative], backgroundColor: ['#1a7f37', '#9ca3af', '#b91c1c'] }]
+			datasets: [{ data: [chartData.sentimentPositive, chartData.sentimentNeutral, chartData.sentimentNegative], backgroundColor: ['#16a34a', '#9ca3af', '#dc2626'] }]
 		},
-		options: { maintainAspectRatio: false, plugins: { title: { display: true, text: 'Sentiment breakdown (latest window)' } } }
+		options: { maintainAspectRatio: false }
 	});
 })();
 </script>
 {{end}}
 
 {{define "entityNotFound"}}
-<p><a href="/">&larr; Trending</a></p>
-<h1>Not found</h1>
-<p>No such entity, or it hasn't been through a rollup yet.</p>
+<p><a href="/" class="text-sm text-blue-600 hover:underline">&larr; Trending</a></p>
+<h1 class="text-2xl font-bold tracking-tight">Not found</h1>
+<p class="text-gray-500">No such entity, or it hasn't been through a rollup yet.</p>
 {{end}}
 
 {{define "searchContent"}}
-<h1>Search</h1>
-<form hx-get="/search" hx-target="#search-results" hx-push-url="true">
-	<input type="search" name="q" value="{{.Query}}" placeholder="Search articles&hellip;" autofocus>
-	<button type="submit">Search</button>
+<h1 class="text-2xl font-bold tracking-tight">Search</h1>
+<form hx-get="/search" hx-target="#search-results" hx-push-url="true" class="flex gap-2">
+	<input type="search" name="q" value="{{.Query}}" placeholder="Search articles&hellip;" autofocus
+		class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500">
+	<button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Search</button>
 </form>
-<div id="search-results">
+<div id="search-results" class="rounded-xl border border-gray-200 bg-white p-4">
 {{template "searchResults" .}}
 </div>
 {{end}}
 
 {{define "searchResults"}}
 {{if .Searched}}
-<ul>
+<ul class="divide-y divide-gray-100">
 	{{range .Results}}
-		<li><a href="{{.URL}}" target="_blank" rel="noopener">{{.Title}}</a> &mdash; {{.PublishedAt}}</li>
+		<li class="py-2.5"><a href="{{.URL}}" target="_blank" rel="noopener" class="font-medium text-gray-900 hover:text-blue-600">{{.Title}}</a><div class="text-xs text-gray-500">{{.PublishedAt}}</div></li>
 	{{else}}
-		<li>No results.</li>
+		<li class="py-4 text-center text-gray-500">No results.</li>
 	{{end}}
 </ul>
 {{end}}
@@ -275,6 +360,63 @@ type sentimentSummary struct {
 	Average  float64
 }
 
+// recentArticle is the UI-side view of coreclient.RecentArticle, with
+// PublishedAt pre-formatted for display rather than left as raw RFC3339.
+type recentArticle struct {
+	Title       string
+	URL         string
+	SourceName  string
+	PublishedAt string
+}
+
+func toRecentArticles(articles []coreclient.RecentArticle) []recentArticle {
+	out := make([]recentArticle, len(articles))
+	for i, a := range articles {
+		out[i] = recentArticle{Title: a.Title, URL: a.URL, SourceName: a.SourceName, PublishedAt: formatPublishedAt(a.PublishedAt)}
+	}
+	return out
+}
+
+// formatPublishedAt turns an RFC3339 timestamp into a short display form
+// (e.g. "Aug 13, 09:08"); articles are recent enough by construction that
+// the year is rarely useful. Falls back to the raw value if it doesn't
+// parse, rather than hiding a real (if unexpected) API response.
+func formatPublishedAt(raw string) string {
+	t, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return raw
+	}
+	return t.Format("Jan 2, 15:04")
+}
+
+// sourceBreakdownRow is the UI-side view of coreclient.SourceBreakdown,
+// with BarPercent (0-100, relative to the entity's most-covering source)
+// added for the proportional bar next to each row.
+type sourceBreakdownRow struct {
+	SourceName   string
+	MentionCount int
+	AvgSentiment float64
+	BarPercent   int
+}
+
+func toSourceBreakdownRows(rows []coreclient.SourceBreakdown) []sourceBreakdownRow {
+	max := 0
+	for _, r := range rows {
+		if r.MentionCount > max {
+			max = r.MentionCount
+		}
+	}
+	out := make([]sourceBreakdownRow, len(rows))
+	for i, r := range rows {
+		pct := 0
+		if max > 0 {
+			pct = r.MentionCount * 100 / max
+		}
+		out[i] = sourceBreakdownRow{SourceName: r.SourceName, MentionCount: r.MentionCount, AvgSentiment: r.AvgSentiment, BarPercent: pct}
+	}
+	return out
+}
+
 // trendingChartPayload is marshaled to JSON and injected verbatim into the
 // trending page's <script> block; json.Marshal HTML-escapes by default,
 // so this is safe even though it's built from entity names we don't
@@ -291,13 +433,14 @@ type trendingChartPayload struct {
 }
 
 type trendingData struct {
-	Windows       []windowTab
-	Entities      []coreclient.EntityRollup
-	Sentiment     sentimentSummary
-	ChartDataJSON template.JS
+	Windows        []windowTab
+	Entities       []coreclient.EntityRollup
+	Sentiment      sentimentSummary
+	RecentArticles []recentArticle
+	ChartDataJSON  template.JS
 }
 
-func buildTrendingData(window string, entities []coreclient.EntityRollup, overall []coreclient.OverallTrendPoint, breakdown coreclient.SentimentBreakdown) trendingData {
+func buildTrendingData(window string, entities []coreclient.EntityRollup, overall []coreclient.OverallTrendPoint, breakdown coreclient.SentimentBreakdown, recentArticles []coreclient.RecentArticle) trendingData {
 	labels := make([]string, len(entities))
 	counts := make([]int, len(entities))
 	for i, e := range entities {
@@ -340,7 +483,8 @@ func buildTrendingData(window string, entities []coreclient.EntityRollup, overal
 		Sentiment: sentimentSummary{
 			Positive: breakdown.Positive, Neutral: breakdown.Neutral, Negative: breakdown.Negative, Average: average,
 		},
-		ChartDataJSON: template.JS(b),
+		RecentArticles: toRecentArticles(recentArticles),
+		ChartDataJSON:  template.JS(b),
 	}
 }
 
@@ -354,11 +498,13 @@ type entityChartPayload struct {
 }
 
 type entityPageData struct {
-	Detail        coreclient.EntityDetail
-	ChartDataJSON template.JS
+	Detail          coreclient.EntityDetail
+	SourceBreakdown []sourceBreakdownRow
+	RecentArticles  []recentArticle
+	ChartDataJSON   template.JS
 }
 
-func buildEntityPageData(detail coreclient.EntityDetail) entityPageData {
+func buildEntityPageData(detail coreclient.EntityDetail, sourceBreakdown []coreclient.SourceBreakdown, recentArticles []coreclient.RecentArticle) entityPageData {
 	labels := make([]string, len(detail.Trend))
 	mentions := make([]int, len(detail.Trend))
 	sentiment := make([]float64, len(detail.Trend))
@@ -382,7 +528,12 @@ func buildEntityPageData(detail coreclient.EntityDetail) entityPageData {
 		b = []byte("{}")
 	}
 
-	return entityPageData{Detail: detail, ChartDataJSON: template.JS(b)}
+	return entityPageData{
+		Detail:          detail,
+		SourceBreakdown: toSourceBreakdownRows(sourceBreakdown),
+		RecentArticles:  toRecentArticles(recentArticles),
+		ChartDataJSON:   template.JS(b),
+	}
 }
 
 type searchData struct {

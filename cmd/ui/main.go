@@ -15,10 +15,11 @@ import (
 )
 
 const (
-	defaultTrendingLimit    = 20
-	defaultSearchLimit      = 20
-	defaultOverallTrendDays = 30
-	defaultEntitySearchHits = 10
+	defaultTrendingLimit       = 20
+	defaultSearchLimit         = 20
+	defaultOverallTrendDays    = 30
+	defaultEntitySearchHits    = 10
+	defaultRecentArticlesLimit = 10
 )
 
 var validWindows = map[string]bool{"day": true, "week": true, "month": true, "year": true}
@@ -37,6 +38,13 @@ func main() {
 	mux.HandleFunc("GET /entities/search", h.handleEntitySearch)
 	mux.HandleFunc("GET /entities/{id}", h.handleEntityDetail)
 	mux.HandleFunc("GET /search", h.handleSearch)
+	// Compiled by the standalone Tailwind CLI at Docker build time (see
+	// cmd/ui/Dockerfile) and placed at this fixed path in the final image
+	// — served from disk rather than go:embed so `go build`/`go test`
+	// never depend on the CSS having been compiled first.
+	mux.HandleFunc("GET /static/style.css", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "/static/style.css")
+	})
 
 	srv := &http.Server{Addr: ":" + port, Handler: mux}
 
@@ -93,7 +101,14 @@ func (h *handlers) handleTrending(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := buildTrendingData(window, entities, overall, breakdown)
+	recentArticles, err := h.core.RecentArticles(r.Context(), 0, defaultRecentArticlesLimit)
+	if err != nil {
+		log.Printf("ui: recent articles: %v", err)
+		http.Error(w, "failed to load recent articles", http.StatusBadGateway)
+		return
+	}
+
+	data := buildTrendingData(window, entities, overall, breakdown, recentArticles)
 
 	if r.Header.Get("HX-Request") == "true" {
 		renderPartial(w, "trendingPanel", data)
@@ -143,7 +158,21 @@ func (h *handlers) handleEntityDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	renderPage(w, "entityContent", buildEntityPageData(detail))
+	sourceBreakdown, err := h.core.SourceBreakdown(r.Context(), id)
+	if err != nil {
+		log.Printf("ui: source breakdown: %v", err)
+		http.Error(w, "failed to load source breakdown", http.StatusBadGateway)
+		return
+	}
+
+	recentArticles, err := h.core.RecentArticles(r.Context(), id, defaultRecentArticlesLimit)
+	if err != nil {
+		log.Printf("ui: recent articles: %v", err)
+		http.Error(w, "failed to load recent articles", http.StatusBadGateway)
+		return
+	}
+
+	renderPage(w, "entityContent", buildEntityPageData(detail, sourceBreakdown, recentArticles))
 }
 
 func (h *handlers) handleSearch(w http.ResponseWriter, r *http.Request) {
