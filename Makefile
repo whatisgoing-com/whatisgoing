@@ -97,7 +97,7 @@ logs: ## tail logs from the running compose stack
 	$(COMPOSE) logs -f
 
 run-rollup: ## run cmd/rollup once against the compose stack, then exit
-	$(COMPOSE) run --rm rollup
+	$(COMPOSE) run --build --rm rollup
 
 ## ---- misc -------------------------------------------------------------------
 
