@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/whatisgoing-com/whatisgoing/internal/core/entityname"
 	"github.com/whatisgoing-com/whatisgoing/internal/core/fetcher"
 	"github.com/whatisgoing-com/whatisgoing/internal/core/ner"
 	"github.com/whatisgoing-com/whatisgoing/internal/core/pipeline"
@@ -136,10 +137,11 @@ func (s *Store) saveMentions(ctx context.Context, articleID int64, mentions []ne
 	order := make([]entityKey, 0, len(mentions))
 
 	for _, m := range mentions {
-		if m.Text == "" || m.Type == "" {
+		name := entityname.Normalize(m.Text)
+		if name == "" || m.Type == "" {
 			continue
 		}
-		key := entityKey{name: m.Text, typ: m.Type}
+		key := entityKey{name: name, typ: m.Type}
 		a, ok := aggregates[key]
 		if !ok {
 			a = &aggregate{}

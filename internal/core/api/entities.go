@@ -8,10 +8,11 @@ import (
 )
 
 type entityDetailJSON struct {
-	ID    int64              `json:"id"`
-	Name  string             `json:"name"`
-	Type  string             `json:"type"`
-	Trend []entityRollupJSON `json:"trend"`
+	ID          int64              `json:"id"`
+	Name        string             `json:"name"`
+	Type        string             `json:"type"`
+	Description string             `json:"description,omitempty"` // "" if not yet resolved against Wikidata/Wikipedia (issue #26)
+	Trend       []entityRollupJSON `json:"trend"`
 }
 
 // handleEntityTrend serves an entity's detail + "reputation trend":
@@ -48,10 +49,11 @@ func (h *handlers) handleEntityTrend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	out := entityDetailJSON{
-		ID:    trend[0].EntityID,
-		Name:  trend[0].EntityName,
-		Type:  trend[0].EntityType,
-		Trend: make([]entityRollupJSON, 0, len(trend)),
+		ID:          trend[0].EntityID,
+		Name:        trend[0].EntityName,
+		Type:        trend[0].EntityType,
+		Description: trend[0].EntityDescription,
+		Trend:       make([]entityRollupJSON, 0, len(trend)),
 	}
 	for _, point := range trend {
 		out.Trend = append(out.Trend, toEntityRollupJSON(point))

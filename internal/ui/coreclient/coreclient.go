@@ -25,10 +25,11 @@ type EntityRollup struct {
 }
 
 type EntityDetail struct {
-	ID    int64          `json:"id"`
-	Name  string         `json:"name"`
-	Type  string         `json:"type"`
-	Trend []EntityRollup `json:"trend"`
+	ID          int64          `json:"id"`
+	Name        string         `json:"name"`
+	Type        string         `json:"type"`
+	Description string         `json:"description"`
+	Trend       []EntityRollup `json:"trend"`
 }
 
 type SearchResult struct {

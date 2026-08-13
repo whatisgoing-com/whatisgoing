@@ -251,3 +251,40 @@ func TestStore_SaveArticles_SharedEntityAcrossArticlesAccumulatesSeparateMention
 		t.Errorf("expected 2 separate mentions rows (one per article), got %d", mentionRows)
 	}
 }
+
+func TestStore_SaveArticles_NormalizesPossessiveEntityNames(t *testing.T) {
+	pool := testPool(t)
+	store := NewStore(pool, &fakeIndexer{})
+	ctx := context.Background()
+
+	seedSource(t, ctx, store)
+
+	first := pipeline.ArticleMentions{
+		Article:  fetcher.Article{SourceID: "src-1", DedupKey: "dk-poss-1", URL: "https://example.com/p1", Title: "P1", Content: "body"},
+		Entities: []ner.Mention{{Text: "Donald Trump's", Type: "PERSON", SentimentScore: -0.2}},
+	}
+	second := pipeline.ArticleMentions{
+		Article:  fetcher.Article{SourceID: "src-1", DedupKey: "dk-poss-2", URL: "https://example.com/p2", Title: "P2", Content: "body"},
+		Entities: []ner.Mention{{Text: "Donald Trump", Type: "PERSON", SentimentScore: 0.4}},
+	}
+
+	if err := store.SaveArticles(ctx, []pipeline.ArticleMentions{first, second}); err != nil {
+		t.Fatalf("SaveArticles: %v", err)
+	}
+
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM entities WHERE type = 'PERSON' AND name ILIKE 'Donald Trump%'`).Scan(&count); err != nil {
+		t.Fatalf("query entity count: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 'Donald Trump's' and 'Donald Trump' to collapse into 1 entity, got %d", count)
+	}
+
+	var name string
+	if err := pool.QueryRow(ctx, `SELECT name FROM entities WHERE type = 'PERSON' AND name ILIKE 'Donald Trump%'`).Scan(&name); err != nil {
+		t.Fatalf("query entity name: %v", err)
+	}
+	if name != "Donald Trump" {
+		t.Errorf("expected stored name to be the possessive-stripped form 'Donald Trump', got %q", name)
+	}
+}
