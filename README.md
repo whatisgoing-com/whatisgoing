@@ -35,7 +35,7 @@ Postgres is the system of record (schema in `internal/core/store/postgres/migrat
 
 This powers two query shapes, exposed by `core`'s JSON API (below) and implemented as `RollupStore` methods: `TopEntities` (ranked mention frequency for a window — "hot topics/persons/orgs") and `ReputationTrend` (an entity's sentiment over time within a window granularity).
 
-Run it locally against the compose stack: `docker compose run --rm rollup`.
+Run it locally against the compose stack: `docker compose run --build --rm rollup` (or `make run-rollup`) — the `--build` matters: `rollup` is excluded from `docker compose up --build` (it's a `profiles: [tools]` service, only ever run on demand), so without it you'll silently run whatever image was last built, however stale.
 
 ## Core API + UI/BFF
 
