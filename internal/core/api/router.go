@@ -20,6 +20,8 @@ type RollupReader interface {
 	OverallTrend(ctx context.Context, window rollup.Window, limit int) ([]rollup.OverallTrendPoint, error)
 	SearchEntities(ctx context.Context, query string, limit int) ([]rollup.EntitySummary, error)
 	SentimentBreakdown(ctx context.Context, window rollup.Window, windowStart time.Time) (rollup.SentimentBreakdown, error)
+	SourceBreakdown(ctx context.Context, entityID int64) ([]rollup.SourceBreakdown, error)
+	RecentArticles(ctx context.Context, entityID int64, limit int) ([]rollup.RecentArticle, error)
 }
 
 func NewRouter(rollups RollupReader, searcher search.Searcher) http.Handler {
@@ -33,6 +35,8 @@ func NewRouter(rollups RollupReader, searcher search.Searcher) http.Handler {
 	mux.HandleFunc("GET /api/entities/{id}", h.handleEntityTrend)
 	mux.HandleFunc("GET /api/search", h.handleSearch)
 	mux.HandleFunc("GET /api/sentiment", h.handleSentimentBreakdown)
+	mux.HandleFunc("GET /api/entities/{id}/sources", h.handleSourceBreakdown)
+	mux.HandleFunc("GET /api/articles/recent", h.handleRecentArticles)
 	return mux
 }
 

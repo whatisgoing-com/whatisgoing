@@ -74,6 +74,29 @@ type SentimentBreakdown struct {
 	Negative int
 }
 
+// SourceBreakdown is one source's mention count + average sentiment for a
+// single entity, across all time — the entity detail page's by-source
+// breakdown (issue #24): which outlets cover this entity, and how
+// differently they cover it.
+type SourceBreakdown struct {
+	SourceID     string
+	SourceName   string
+	MentionCount int
+	AvgSentiment float64
+}
+
+// RecentArticle is a lightweight article summary — headline, source,
+// link, publish time — for the recent-articles list (issue #24). No body
+// content: the dashboard links out to the original rather than
+// reproducing it.
+type RecentArticle struct {
+	ID          int64
+	Title       string
+	URL         string
+	SourceName  string
+	PublishedAt time.Time
+}
+
 // WindowStart returns the start of the window containing t, truncated the
 // same way Postgres' date_trunc(unit, t) truncates it — in particular,
 // Week starts on Monday (ISO 8601), matching date_trunc's behavior.

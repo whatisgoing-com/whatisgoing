@@ -57,6 +57,21 @@ type SentimentBreakdown struct {
 	Negative int `json:"negative"`
 }
 
+type SourceBreakdown struct {
+	SourceID     string  `json:"source_id"`
+	SourceName   string  `json:"source_name"`
+	MentionCount int     `json:"mention_count"`
+	AvgSentiment float64 `json:"avg_sentiment"`
+}
+
+type RecentArticle struct {
+	ID          int64  `json:"id"`
+	Title       string `json:"title"`
+	URL         string `json:"url"`
+	SourceName  string `json:"source_name"`
+	PublishedAt string `json:"published_at"`
+}
+
 type Client struct {
 	httpClient *http.Client
 	baseURL    string
@@ -151,6 +166,31 @@ func (c *Client) SentimentBreakdown(ctx context.Context, window string) (Sentime
 	var out SentimentBreakdown
 	if err := c.get(ctx, "/api/sentiment?"+q.Encode(), &out); err != nil {
 		return SentimentBreakdown{}, fmt.Errorf("get sentiment breakdown: %w", err)
+	}
+	return out, nil
+}
+
+// SourceBreakdown returns one entity's mention count + average sentiment
+// per source, for the entity detail page's by-source breakdown.
+func (c *Client) SourceBreakdown(ctx context.Context, entityID int64) ([]SourceBreakdown, error) {
+	var out []SourceBreakdown
+	if err := c.get(ctx, fmt.Sprintf("/api/entities/%d/sources", entityID), &out); err != nil {
+		return nil, fmt.Errorf("get source breakdown: %w", err)
+	}
+	return out, nil
+}
+
+// RecentArticles returns the most recently published articles, newest
+// first, for the recent-articles list. entityID == 0 means unfiltered
+// (the home page); a non-zero entityID scopes it to one entity's page.
+func (c *Client) RecentArticles(ctx context.Context, entityID int64, limit int) ([]RecentArticle, error) {
+	q := url.Values{"limit": {strconv.Itoa(limit)}}
+	if entityID != 0 {
+		q.Set("entity_id", strconv.FormatInt(entityID, 10))
+	}
+	var out []RecentArticle
+	if err := c.get(ctx, "/api/articles/recent?"+q.Encode(), &out); err != nil {
+		return nil, fmt.Errorf("get recent articles: %w", err)
 	}
 	return out, nil
 }

@@ -432,3 +432,108 @@ func TestRollupStore_SearchEntities_MatchesCaseInsensitiveSubstring(t *testing.T
 		t.Errorf("expected no matches, got %+v", noMatch)
 	}
 }
+
+func TestRollupStore_SourceBreakdown_PerSourceCountAndAvgSentiment(t *testing.T) {
+	pool := testPool(t)
+	store := NewStore(pool, &fakeIndexer{})
+	rollupStore := NewRollupStore(pool)
+	ctx := context.Background()
+
+	if err := store.UpsertSources(ctx, []fetcher.Source{
+		{ID: "src-1", Name: "Source One", URL: "https://one.example.com", Type: fetcher.SourceTypeRSS},
+		{ID: "src-2", Name: "Source Two", URL: "https://two.example.com", Type: fetcher.SourceTypeRSS},
+	}); err != nil {
+		t.Fatalf("UpsertSources: %v", err)
+	}
+
+	published := time.Date(2026, time.August, 8, 9, 0, 0, 0, time.UTC)
+	articles := []pipeline.ArticleMentions{
+		{
+			Article:  fetcher.Article{SourceID: "src-1", DedupKey: "dk-sb-1", URL: "https://one.example.com/1", Title: "One A", Content: "body", PublishedAt: published},
+			Entities: []ner.Mention{{Text: "Elon Musk", Type: "PERSON", SentimentScore: 0.8}},
+		},
+		{
+			Article:  fetcher.Article{SourceID: "src-1", DedupKey: "dk-sb-2", URL: "https://one.example.com/2", Title: "One B", Content: "body", PublishedAt: published.Add(time.Hour)},
+			Entities: []ner.Mention{{Text: "Elon Musk", Type: "PERSON", SentimentScore: 0.4}},
+		},
+		{
+			Article:  fetcher.Article{SourceID: "src-2", DedupKey: "dk-sb-3", URL: "https://two.example.com/1", Title: "Two A", Content: "body", PublishedAt: published.Add(2 * time.Hour)},
+			Entities: []ner.Mention{{Text: "Elon Musk", Type: "PERSON", SentimentScore: -0.6}},
+		},
+	}
+	if err := store.SaveArticles(ctx, articles); err != nil {
+		t.Fatalf("SaveArticles: %v", err)
+	}
+
+	var entityID int64
+	if err := pool.QueryRow(ctx, `SELECT id FROM entities WHERE name = 'Elon Musk'`).Scan(&entityID); err != nil {
+		t.Fatalf("look up entity id: %v", err)
+	}
+
+	results, err := rollupStore.SourceBreakdown(ctx, entityID)
+	if err != nil {
+		t.Fatalf("SourceBreakdown: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 sources, got %d: %+v", len(results), results)
+	}
+
+	// ordered by mention count descending: src-1 (2 mentions) before src-2 (1)
+	if results[0].SourceID != "src-1" || results[0].MentionCount != 2 {
+		t.Errorf("expected src-1 first with 2 mentions, got %+v", results[0])
+	}
+	if want := 0.6; results[0].AvgSentiment < want-0.001 || results[0].AvgSentiment > want+0.001 {
+		t.Errorf("expected src-1 avg sentiment %v, got %v", want, results[0].AvgSentiment)
+	}
+	if results[1].SourceID != "src-2" || results[1].MentionCount != 1 {
+		t.Errorf("expected src-2 second with 1 mention, got %+v", results[1])
+	}
+}
+
+func TestRollupStore_RecentArticles_NewestFirstAndOptionalEntityFilter(t *testing.T) {
+	pool := testPool(t)
+	store := NewStore(pool, &fakeIndexer{})
+	rollupStore := NewRollupStore(pool)
+	ctx := context.Background()
+
+	seedSource(t, ctx, store)
+
+	published := time.Date(2026, time.August, 8, 9, 0, 0, 0, time.UTC)
+	articles := []pipeline.ArticleMentions{
+		{
+			Article:  fetcher.Article{SourceID: "src-1", DedupKey: "dk-ra-1", URL: "https://example.com/oldest", Title: "Oldest", Content: "body", PublishedAt: published},
+			Entities: []ner.Mention{{Text: "Elon Musk", Type: "PERSON", SentimentScore: 0.1}},
+		},
+		{
+			Article:  fetcher.Article{SourceID: "src-1", DedupKey: "dk-ra-2", URL: "https://example.com/newest", Title: "Newest", Content: "body", PublishedAt: published.Add(2 * time.Hour)},
+			Entities: []ner.Mention{{Text: "Tesla", Type: "ORG", SentimentScore: 0.1}},
+		},
+	}
+	if err := store.SaveArticles(ctx, articles); err != nil {
+		t.Fatalf("SaveArticles: %v", err)
+	}
+
+	all, err := rollupStore.RecentArticles(ctx, 0, 10)
+	if err != nil {
+		t.Fatalf("RecentArticles: %v", err)
+	}
+	if len(all) != 2 || all[0].Title != "Newest" || all[1].Title != "Oldest" {
+		t.Fatalf("expected [Newest, Oldest] unfiltered, got %+v", all)
+	}
+	if all[0].SourceName != "Src 1" {
+		t.Errorf("expected source name Src 1, got %q", all[0].SourceName)
+	}
+
+	var teslaID int64
+	if err := pool.QueryRow(ctx, `SELECT id FROM entities WHERE name = 'Tesla'`).Scan(&teslaID); err != nil {
+		t.Fatalf("look up Tesla id: %v", err)
+	}
+
+	filtered, err := rollupStore.RecentArticles(ctx, teslaID, 10)
+	if err != nil {
+		t.Fatalf("RecentArticles filtered: %v", err)
+	}
+	if len(filtered) != 1 || filtered[0].Title != "Newest" {
+		t.Fatalf("expected only [Newest] for Tesla, got %+v", filtered)
+	}
+}

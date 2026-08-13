@@ -13,12 +13,14 @@ import (
 )
 
 type fakeRollups struct {
-	top          []rollup.EntityRollup
-	trend        []rollup.EntityRollup
-	overall      []rollup.OverallTrendPoint
-	entitySearch []rollup.EntitySummary
-	sentiment    rollup.SentimentBreakdown
-	err          error
+	top             []rollup.EntityRollup
+	trend           []rollup.EntityRollup
+	overall         []rollup.OverallTrendPoint
+	entitySearch    []rollup.EntitySummary
+	sentiment       rollup.SentimentBreakdown
+	sourceBreakdown []rollup.SourceBreakdown
+	recentArticles  []rollup.RecentArticle
+	err             error
 }
 
 func (f *fakeRollups) TopEntities(ctx context.Context, window rollup.Window, windowStart time.Time, limit int) ([]rollup.EntityRollup, error) {
@@ -54,6 +56,20 @@ func (f *fakeRollups) SentimentBreakdown(ctx context.Context, window rollup.Wind
 		return rollup.SentimentBreakdown{}, f.err
 	}
 	return f.sentiment, nil
+}
+
+func (f *fakeRollups) SourceBreakdown(ctx context.Context, entityID int64) ([]rollup.SourceBreakdown, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.sourceBreakdown, nil
+}
+
+func (f *fakeRollups) RecentArticles(ctx context.Context, entityID int64, limit int) ([]rollup.RecentArticle, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.recentArticles, nil
 }
 
 type fakeSearcher struct {
@@ -272,6 +288,72 @@ func TestHandleSentimentBreakdown_RejectsInvalidWindow(t *testing.T) {
 
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/sentiment?window=decade", nil))
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.Code)
+	}
+}
+
+func TestHandleSourceBreakdown_ReturnsResults(t *testing.T) {
+	rollups := &fakeRollups{sourceBreakdown: []rollup.SourceBreakdown{
+		{SourceID: "bbc-world", SourceName: "BBC World News", MentionCount: 5, AvgSentiment: -0.3},
+	}}
+	router := NewRouter(rollups, &fakeSearcher{})
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/entities/42/sources", nil))
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.Code)
+	}
+
+	var got []sourceBreakdownJSON
+	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got) != 1 || got[0].SourceName != "BBC World News" || got[0].MentionCount != 5 {
+		t.Errorf("unexpected response: %+v", got)
+	}
+}
+
+func TestHandleSourceBreakdown_RejectsNonNumericID(t *testing.T) {
+	router := NewRouter(&fakeRollups{}, &fakeSearcher{})
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/entities/not-a-number/sources", nil))
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.Code)
+	}
+}
+
+func TestHandleRecentArticles_ReturnsResults(t *testing.T) {
+	rollups := &fakeRollups{recentArticles: []rollup.RecentArticle{
+		{ID: 1, Title: "Headline", URL: "https://example.com/1", SourceName: "BBC World News", PublishedAt: time.Date(2026, 8, 13, 9, 0, 0, 0, time.UTC)},
+	}}
+	router := NewRouter(rollups, &fakeSearcher{})
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/articles/recent", nil))
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.Code)
+	}
+
+	var got []recentArticleJSON
+	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got) != 1 || got[0].Title != "Headline" {
+		t.Errorf("unexpected response: %+v", got)
+	}
+}
+
+func TestHandleRecentArticles_RejectsInvalidEntityID(t *testing.T) {
+	router := NewRouter(&fakeRollups{}, &fakeSearcher{})
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/articles/recent?entity_id=not-a-number", nil))
 
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", resp.Code)

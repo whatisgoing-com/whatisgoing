@@ -19,3 +19,6 @@ configs/sources.yaml
 
 # OS
 .DS_Store
+
+# Standalone Tailwind CLI, downloaded by scripts/local dev, not committed
+/.tools/
