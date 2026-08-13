@@ -64,7 +64,9 @@ docker compose up --build
 - Postgres: localhost:5432 (`whatisgoing`/`whatisgoing`)
 - Meilisearch: http://localhost:7700
 
-Postgres/Meilisearch-backed tests are gated behind `TEST_DATABASE_URL` / `TEST_MEILISEARCH_URL` (+ `TEST_MEILISEARCH_KEY`) and skip themselves if unset — run `docker compose up -d postgres meilisearch` first, then e.g.:
+`make help` lists the day-to-day commands (`make build`, `make test-core`/`test-ui`/`test-rollup` — each mirrors one of `.drone.yml`'s Go pipelines exactly, so a local failure means CI will fail the same way — `make test-py`, `make up`/`down`, etc).
+
+Postgres/Meilisearch-backed tests are gated behind `TEST_DATABASE_URL` / `TEST_MEILISEARCH_URL` (+ `TEST_MEILISEARCH_KEY`) and skip themselves if unset — run `docker compose up -d postgres meilisearch` (or `make up-deps`) first, then e.g.:
 
 ```sh
 TEST_DATABASE_URL="postgres://whatisgoing:whatisgoing@localhost:5432/whatisgoing?sslmode=disable" \
@@ -72,6 +74,8 @@ TEST_MEILISEARCH_URL="http://localhost:7700" \
 TEST_MEILISEARCH_KEY="dev-master-key" \
 go test ./...
 ```
+
+(or `make test-db`, which sets those the same way)
 
 ## Deployment
 
