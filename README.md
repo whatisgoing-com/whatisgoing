@@ -35,7 +35,7 @@ Postgres is the system of record (schema in `internal/core/store/postgres/migrat
 
 This powers two query shapes, exposed by `core`'s JSON API (below) and implemented as `RollupStore` methods: `TopEntities` (ranked mention frequency for a window — "hot topics/persons/orgs") and `ReputationTrend` (an entity's sentiment over time within a window granularity).
 
-Run it locally against the compose stack: `docker compose run --rm rollup`.
+Run it locally against the compose stack: `docker compose run --build --rm rollup` (or `make run-rollup`) — the `--build` matters: `rollup` is excluded from `docker compose up --build` (it's a `profiles: [tools]` service, only ever run on demand), so without it you'll silently run whatever image was last built, however stale.
 
 ## Core API + UI/BFF
 
@@ -64,7 +64,9 @@ docker compose up --build
 - Postgres: localhost:5432 (`whatisgoing`/`whatisgoing`)
 - Meilisearch: http://localhost:7700
 
-Postgres/Meilisearch-backed tests are gated behind `TEST_DATABASE_URL` / `TEST_MEILISEARCH_URL` (+ `TEST_MEILISEARCH_KEY`) and skip themselves if unset — run `docker compose up -d postgres meilisearch` first, then e.g.:
+`make help` lists the day-to-day commands (`make build`, `make test-core`/`test-ui`/`test-rollup` — each mirrors one of `.drone.yml`'s Go pipelines exactly, so a local failure means CI will fail the same way — `make test-py`, `make up`/`down`, etc).
+
+Postgres/Meilisearch-backed tests are gated behind `TEST_DATABASE_URL` / `TEST_MEILISEARCH_URL` (+ `TEST_MEILISEARCH_KEY`) and skip themselves if unset — run `docker compose up -d postgres meilisearch` (or `make up-deps`) first, then e.g.:
 
 ```sh
 TEST_DATABASE_URL="postgres://whatisgoing:whatisgoing@localhost:5432/whatisgoing?sslmode=disable" \
@@ -72,6 +74,8 @@ TEST_MEILISEARCH_URL="http://localhost:7700" \
 TEST_MEILISEARCH_KEY="dev-master-key" \
 go test ./...
 ```
+
+(or `make test-db`, which sets those the same way)
 
 ## Deployment
 
