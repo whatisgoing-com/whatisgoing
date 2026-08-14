@@ -56,6 +56,8 @@ The trending (home) page: a sentiment overview as 4 stat tiles (real positive/ne
 
 Styling is Tailwind CSS, compiled to a static file by the standalone CLI at Docker build time (`cmd/ui/Dockerfile`) — no Node/npm in the toolchain, still just server-rendered `html/template`. `cmd/ui/static/input.css` is the only committed input; the compiled `style.css` is a build artifact, never committed, served from `/static/style.css` (read from disk at runtime, not `go:embed`, so `go build`/`go test` never depend on it existing). The layout is responsive via Tailwind's `sm:`/`lg:` breakpoints rather than a hand-written media query.
 
+The header logo (issue #28) is the brand mark: "going" is a solid block that always inverts against its background, no separate icon — set in Bricolage Grotesque (weight 800 only, embedded as a base64 `@font-face` in `input.css`, deliberately not used anywhere else — body copy, tables, and charts stay the default Tailwind sans stack). The favicon (`cmd/ui/static/favicon.svg`) is a placeholder monogram in the same ink/paper values, since no dedicated icon-only mark exists yet.
+
 ## Local development
 
 ```sh

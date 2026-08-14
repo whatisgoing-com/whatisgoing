@@ -45,6 +45,9 @@ func main() {
 	mux.HandleFunc("GET /static/style.css", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "/static/style.css")
 	})
+	mux.HandleFunc("GET /static/favicon.svg", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "/static/favicon.svg")
+	})
 
 	srv := &http.Server{Addr: ":" + port, Handler: mux}
 
