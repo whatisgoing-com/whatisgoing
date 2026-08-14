@@ -36,16 +36,17 @@ func ParseWindow(s string) (Window, bool) {
 // times the entity was mentioned in that window, and its average
 // sentiment.
 type EntityRollup struct {
-	EntityID       int64
-	EntityName     string
-	EntityType     string
-	Window         Window
-	WindowStart    time.Time
-	MentionCount   int
-	SentimentScore float64
-	PositiveCount  int
-	NeutralCount   int
-	NegativeCount  int
+	EntityID          int64
+	EntityName        string
+	EntityType        string
+	EntityDescription string // short Wikipedia summary, "" if not yet resolved (issue #26)
+	Window            Window
+	WindowStart       time.Time
+	MentionCount      int
+	SentimentScore    float64
+	PositiveCount     int
+	NeutralCount      int
+	NegativeCount     int
 }
 
 // OverallTrendPoint is one window_start's aggregate across every entity:

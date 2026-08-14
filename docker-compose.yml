@@ -76,6 +76,17 @@ services:
     profiles:
       - tools
 
+  entity-resolver:
+    build:
+      context: .
+      dockerfile: cmd/entity-resolver/Dockerfile
+    environment:
+      DATABASE_URL: postgres://whatisgoing:whatisgoing@postgres:5432/whatisgoing?sslmode=disable
+    depends_on:
+      - postgres
+    profiles:
+      - tools
+
 volumes:
   postgres-data:
   meili-data:

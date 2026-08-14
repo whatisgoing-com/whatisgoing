@@ -226,6 +226,9 @@ var tmpl = template.Must(template.New("ui").Parse(`
 	<h1 class="text-2xl font-bold tracking-tight">{{.Detail.Name}}</h1>
 	{{template "typeBadge" .Detail.Type}}
 </div>
+{{if .Detail.Description}}
+<p class="max-w-2xl text-sm text-gray-600">{{.Detail.Description}} <span class="text-gray-400">(source: Wikipedia)</span></p>
+{{end}}
 
 <section class="grid grid-cols-1 gap-4 lg:grid-cols-2">
 	<div class="rounded-xl border border-gray-200 bg-white p-4">

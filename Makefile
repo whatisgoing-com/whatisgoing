@@ -8,8 +8,8 @@ PY      := $(PY_VENV)/bin/python
 
 ## ---- build (Go) ----------------------------------------------------------
 
-.PHONY: build build-core build-ui build-rollup
-build: build-core build-ui build-rollup ## build all three Go binaries into bin/
+.PHONY: build build-core build-ui build-rollup build-entity-resolver
+build: build-core build-ui build-rollup build-entity-resolver ## build all four Go binaries into bin/
 
 build-core: ## build cmd/core into bin/core
 	$(GO) build -o bin/core ./cmd/core
@@ -20,12 +20,16 @@ build-ui: ## build cmd/ui into bin/ui
 build-rollup: ## build cmd/rollup into bin/rollup
 	$(GO) build -o bin/rollup ./cmd/rollup
 
-## ---- test / vet / fmt (Go) -------------------------------------------------
-## test-core/test-ui/test-rollup mirror .drone.yml's three Go pipelines
-## exactly, so a local failure here means CI will fail the same way.
+build-entity-resolver: ## build cmd/entity-resolver into bin/entity-resolver
+	$(GO) build -o bin/entity-resolver ./cmd/entity-resolver
 
-.PHONY: test test-core test-ui test-rollup test-db
-test: test-core test-ui test-rollup ## run all Go tests, service by service (matches CI)
+## ---- test / vet / fmt (Go) -------------------------------------------------
+## test-core/test-ui/test-rollup/test-entity-resolver mirror .drone.yml's
+## Go pipelines exactly, so a local failure here means CI will fail the
+## same way.
+
+.PHONY: test test-core test-ui test-rollup test-entity-resolver test-db
+test: test-core test-ui test-rollup test-entity-resolver ## run all Go tests, service by service (matches CI)
 
 test-core: ## build + vet + test cmd/core and internal/core
 	$(GO) build ./cmd/core/... ./internal/core/...
@@ -40,6 +44,11 @@ test-ui: ## build + vet + test cmd/ui and internal/ui
 test-rollup: ## build + vet + test cmd/rollup and internal/core
 	$(GO) build ./cmd/rollup/... ./internal/core/...
 	$(GO) vet ./cmd/rollup/... ./internal/core/...
+	$(GO) test ./internal/core/...
+
+test-entity-resolver: ## build + vet + test cmd/entity-resolver and internal/core
+	$(GO) build ./cmd/entity-resolver/... ./internal/core/...
+	$(GO) vet ./cmd/entity-resolver/... ./internal/core/...
 	$(GO) test ./internal/core/...
 
 test-db: ## run the full Go suite against a real Postgres/Meilisearch (run 'make up-deps' first)
@@ -83,7 +92,7 @@ test-py: ## run services/ner-sentiment's test suite (run 'make py-install' first
 
 ## ---- local stack (docker compose) ------------------------------------------
 
-.PHONY: up up-deps down logs run-rollup
+.PHONY: up up-deps down logs run-rollup run-entity-resolver
 up: ## docker compose up --build (core, ui, ner-sentiment, postgres, meilisearch)
 	$(COMPOSE) up --build
 
@@ -98,6 +107,9 @@ logs: ## tail logs from the running compose stack
 
 run-rollup: ## run cmd/rollup once against the compose stack, then exit
 	$(COMPOSE) run --build --rm rollup
+
+run-entity-resolver: ## run cmd/entity-resolver once against the compose stack, then exit
+	$(COMPOSE) run --build --rm entity-resolver
 
 ## ---- misc -------------------------------------------------------------------
 

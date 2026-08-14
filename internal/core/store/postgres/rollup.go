@@ -81,7 +81,7 @@ func (s *RollupStore) Compute(ctx context.Context) error {
 // orgs" feature.
 func (s *RollupStore) TopEntities(ctx context.Context, window rollup.Window, windowStart time.Time, limit int) ([]rollup.EntityRollup, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT e.id, e.name, e.type, r.window_kind, r.window_start, r.mention_count, r.sentiment_score, r.positive_count, r.neutral_count, r.negative_count
+		SELECT e.id, e.name, e.type, COALESCE(e.description, ''), r.window_kind, r.window_start, r.mention_count, r.sentiment_score, r.positive_count, r.neutral_count, r.negative_count
 		FROM entity_rollups r
 		JOIN entities e ON e.id = r.entity_id
 		WHERE r.window_kind = $1 AND r.window_start = $2
@@ -101,7 +101,7 @@ func (s *RollupStore) TopEntities(ctx context.Context, window rollup.Window, win
 // time at a given window granularity, oldest first.
 func (s *RollupStore) ReputationTrend(ctx context.Context, entityID int64, window rollup.Window) ([]rollup.EntityRollup, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT e.id, e.name, e.type, r.window_kind, r.window_start, r.mention_count, r.sentiment_score, r.positive_count, r.neutral_count, r.negative_count
+		SELECT e.id, e.name, e.type, COALESCE(e.description, ''), r.window_kind, r.window_start, r.mention_count, r.sentiment_score, r.positive_count, r.neutral_count, r.negative_count
 		FROM entity_rollups r
 		JOIN entities e ON e.id = r.entity_id
 		WHERE r.entity_id = $1 AND r.window_kind = $2
@@ -188,7 +188,7 @@ func scanEntityRollups(rows pgx.Rows) ([]rollup.EntityRollup, error) {
 	for rows.Next() {
 		var r rollup.EntityRollup
 		var window string
-		if err := rows.Scan(&r.EntityID, &r.EntityName, &r.EntityType, &window, &r.WindowStart, &r.MentionCount, &r.SentimentScore, &r.PositiveCount, &r.NeutralCount, &r.NegativeCount); err != nil {
+		if err := rows.Scan(&r.EntityID, &r.EntityName, &r.EntityType, &r.EntityDescription, &window, &r.WindowStart, &r.MentionCount, &r.SentimentScore, &r.PositiveCount, &r.NeutralCount, &r.NegativeCount); err != nil {
 			return nil, fmt.Errorf("scan entity rollup: %w", err)
 		}
 		r.Window = rollup.Window(window)

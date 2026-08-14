@@ -7,6 +7,7 @@ News analytics platform: scrapes news articles, extracts named entities (PERSON/
 - `cmd/core` — Go modular monolith: source scheduler, RSS/scraper fetcher, pipeline coordinator, internal JSON API.
 - `cmd/ui` — Go + htmx BFF, renders the public dashboard from `core`'s JSON API.
 - `cmd/rollup` — computes windowed entity-mention rollups (hot topics, reputation trend), then exits; run on a schedule rather than as a long-lived service.
+- `cmd/entity-resolver` — canonicalizes entity name variants ("Trump" / "Donald Trump" / "Donald J. Trump" → one entity) against Wikidata, then exits; same run-on-a-schedule shape as `cmd/rollup`.
 - `services/ner-sentiment` — Python (FastAPI): article extraction (`trafilatura`), NER (spaCy), sentence-level sentiment (DistilBERT).
 
 ## Ingestion sources
@@ -37,6 +38,23 @@ This powers two query shapes, exposed by `core`'s JSON API (below) and implement
 
 Run it locally against the compose stack: `docker compose run --build --rm rollup` (or `make run-rollup`) — the `--build` matters: `rollup` is excluded from `docker compose up --build` (it's a `profiles: [tools]` service, only ever run on demand), so without it you'll silently run whatever image was last built, however stale.
 
+## Entity resolution (canonicalizing name variants)
+
+NER extracts entity identity from raw text, so different articles referring to the same real-world entity by different surface forms ("Trump", "Donald Trump", "Donald J. Trump") each become their own `entities` row by default — splitting mention counts and sentiment across several rows instead of one (issue #26).
+
+Two independent fixes:
+
+- **At ingestion**: `internal/core/entityname.Normalize` strips a trailing possessive marker ("Donald Trump's" → "Donald Trump") before an extracted name becomes entity identity — cheap, no external dependency, catches that one class of noise outright.
+- **`cmd/entity-resolver`**: for each entity without a `wikidata_id` yet, searches Wikidata for a matching item and merges any entities that resolve to the same QID. Deliberately only trusts Wikidata's *top* search result, and only if it's not a generic/meta entry (a small denylist — "family name", "disambiguation page", etc.) — tried scanning further down the result list for a better candidate and it's actively unsafe, not just noisier: searching a bare "Trump" surfaces "Trump (family name)" as its top hit, and the next "specific" result past that was an unrelated open star cluster matched via an alias, confirmed against the live API. When Wikidata gives nothing confident (typically a bare surname), it falls back to matching against already-resolved entities of the same type by name-token containment (e.g. "Trump" ⊆ "Donald Trump" once that's resolved) — only when that match is unambiguous; a genuinely ambiguous short name is left unresolved rather than guessed wrong.
+
+Merging migrates `mentions` (averaging sentiment for any article both already had a row for) onto the surviving entity, then deletes the other — `entity_cooccurrence` and `entity_rollups` rows for it cascade-delete via their foreign keys, and the next rollup run recomputes rollups for the merged entity from scratch regardless.
+
+Whichever entity becomes canonical for a QID also gets a short descriptive paragraph fetched from Wikipedia's public REST summary API (`internal/core/wikipedia`, looked up by Wikidata's canonical label — the two usually share a title for well-known entities), stored in `entities.description` and shown on the entity detail page. A failed or missing Wikipedia page doesn't block resolving the entity itself — it's still correctly deduplicated either way, just without a description.
+
+Not solved here (accepted limitations, not gaps in disguise): no type-aware disambiguation beyond the denylist + token heuristic, so genuinely ambiguous names correctly stay unresolved rather than risk a wrong merge; a mention NER mistyped as the wrong entity type (e.g. "Trump" tagged `ORG` in some mentions) stays separate from the correctly-typed entity rather than being fixed here — that's a different, pre-existing bug. Verified end-to-end against real ingested data: `Donald Trump`/`Trump`/`Donald J. Trump` (280 real entities, several genuine duplicate clusters) collapsed into one `Donald Trump` entity carrying a real Wikidata QID, while the ORG-mistyped `Trump` correctly stayed separate and unresolved.
+
+Run it locally: `docker compose run --build --rm entity-resolver` (or `make run-entity-resolver`).
+
 ## Core API + UI/BFF
 
 `core`'s internal JSON API (`internal/core/api`), consumed only by `cmd/ui`:
@@ -44,7 +62,7 @@ Run it locally against the compose stack: `docker compose run --build --rm rollu
 - `GET /api/trending?window=day&limit=20` — most-mentioned entities in the current window (`day`/`week`/`month`/`year`).
 - `GET /api/trend/overall?window=day&limit=30` — aggregate mentions + average sentiment per window_start across every entity, for the home dashboard's time-series chart.
 - `GET /api/entities?q=...&limit=10` — find entities by a case-insensitive name substring match, for the dashboard's entity search bar.
-- `GET /api/entities/{id}?window=day` — an entity's detail + reputation trend at that window granularity (each point includes positive/neutral/negative mention counts). 404s if the entity doesn't exist or hasn't been through a rollup yet.
+- `GET /api/entities/{id}?window=day` — an entity's detail + reputation trend at that window granularity (each point includes positive/neutral/negative mention counts), plus a short Wikipedia description if the entity has been resolved (see "Entity resolution" below; `""` if not yet resolved). 404s if the entity doesn't exist or hasn't been through a rollup yet.
 - `GET /api/search?q=...&limit=20` — full-text article search via Meilisearch.
 - `GET /api/sentiment?window=day` — positive/neutral/negative mention counts summed across every entity for the window's current bucket, for the home dashboard's sentiment pie chart. A real total (backed by `positive_count`/`neutral_count`/`negative_count` columns on `entity_rollups`, populated by the rollup job's bucketing of each mention's sentiment score), not an approximation from only the top-N trending entities.
 - `GET /api/entities/{id}/sources` — one entity's mention count + average sentiment per source, across all time — which outlets cover it, and how differently they cover it.
