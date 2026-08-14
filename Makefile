@@ -92,7 +92,7 @@ test-py: ## run services/ner-sentiment's test suite (run 'make py-install' first
 
 ## ---- local stack (docker compose) ------------------------------------------
 
-.PHONY: up up-deps down logs run-rollup run-entity-resolver
+.PHONY: up up-deps down logs run-rollup run-entity-resolver seed dev-bootstrap
 up: ## docker compose up --build (core, ui, ner-sentiment, postgres, meilisearch)
 	$(COMPOSE) up --build
 
@@ -110,6 +110,18 @@ run-rollup: ## run cmd/rollup once against the compose stack, then exit
 
 run-entity-resolver: ## run cmd/entity-resolver once against the compose stack, then exit
 	$(COMPOSE) run --build --rm entity-resolver
+
+seed: ## run cmd/devseed once against the compose stack — real ingestion, purely additive (never erases data)
+	$(GO) run ./cmd/devseed
+
+dev-bootstrap: ## one-shot fresh start: stack up (detached) + seed + rollup + entity-resolver
+	$(COMPOSE) up -d --build
+	@echo "waiting for core and ner-sentiment to be healthy..."
+	@until curl -sf http://localhost:8080/healthz >/dev/null 2>&1 && curl -sf http://localhost:8000/healthz >/dev/null 2>&1; do sleep 2; done
+	$(MAKE) seed
+	$(MAKE) run-rollup
+	$(MAKE) run-entity-resolver
+	@echo "done — dashboard at http://localhost:8081"
 
 ## ---- misc -------------------------------------------------------------------
 

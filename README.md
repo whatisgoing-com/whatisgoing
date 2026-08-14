@@ -90,6 +90,18 @@ docker compose up --build
 
 `make help` lists the day-to-day commands (`make build`, `make test-core`/`test-ui`/`test-rollup` — each mirrors one of `.drone.yml`'s Go pipelines exactly, so a local failure means CI will fail the same way — `make test-py`, `make up`/`down`, etc).
 
+### Getting real data locally
+
+`cmd/core`'s fetch scheduler only runs every 15 minutes, which is a long wait for a fresh dev environment. `cmd/devseed` runs one real ingestion pass on demand — real RSS feeds, real NER/sentiment, purely additive (dedups on `dedup_key`, so re-running it never erases or duplicates anything already there):
+
+```sh
+make dev-bootstrap   # fresh start: stack up + seed + rollup + entity-resolver, one command
+```
+
+or piece by piece once the stack is already up: `make seed`, then `make run-rollup`, then `make run-entity-resolver` (entity resolution can run again any time — it's idempotent and only touches not-yet-resolved entities).
+
+### Testing against Postgres/Meilisearch
+
 Postgres/Meilisearch-backed tests are gated behind `TEST_DATABASE_URL` / `TEST_MEILISEARCH_URL` (+ `TEST_MEILISEARCH_KEY`) and skip themselves if unset — run `docker compose up -d postgres meilisearch` (or `make up-deps`) first, then e.g.:
 
 ```sh
@@ -100,6 +112,8 @@ go test ./...
 ```
 
 (or `make test-db`, which sets those the same way)
+
+**Careful what you point `TEST_DATABASE_URL` at**: `internal/core/store/postgres`'s tests `TRUNCATE` every table before each one runs, against whatever database that URL names. Pointing it at your main dev-stack Postgres (the example above does) wipes any seeded data as a side effect of running the test suite — re-run `make seed && make run-rollup && make run-entity-resolver` afterward, or use a separate/disposable Postgres for test runs if you want to keep dev data and test runs from stepping on each other.
 
 ## Deployment
 
