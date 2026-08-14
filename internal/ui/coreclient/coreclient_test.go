@@ -146,6 +146,28 @@ func TestClient_SentimentBreakdown_ParsesResponse(t *testing.T) {
 	}
 }
 
+func TestClient_WindowStats_ParsesResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/stats" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("window"); got != "week" {
+			t.Errorf("expected window=week, got %q", got)
+		}
+		json.NewEncoder(w).Encode(WindowStats{ArticleCount: 42, EntityCount: 17, WindowStart: "2026-08-10", WindowEnd: "2026-08-17"})
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, nil)
+	stats, err := client.WindowStats(context.Background(), "week")
+	if err != nil {
+		t.Fatalf("WindowStats() error = %v", err)
+	}
+	if stats.ArticleCount != 42 || stats.EntityCount != 17 || stats.WindowStart != "2026-08-10" || stats.WindowEnd != "2026-08-17" {
+		t.Errorf("unexpected stats: %+v", stats)
+	}
+}
+
 func TestClient_SearchEntities_ParsesResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.URL.Query().Get("q"); got != "musk" {

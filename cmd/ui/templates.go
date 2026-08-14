@@ -2,10 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"io"
 	"log"
-	"sort"
 	"time"
 
 	"github.com/whatisgoing-com/whatisgoing/internal/ui/coreclient"
@@ -75,25 +75,32 @@ var tmpl = template.Must(template.New("ui").Parse(`
 	</div>
 </div>
 
-<div class="flex gap-1 border-b border-gray-200">
-	{{range .Windows}}<a href="/?window={{.Value}}" hx-get="/?window={{.Value}}" hx-target="#trending-panel" hx-push-url="true"
-		class="-mb-px border-b-2 px-3 py-2 text-sm font-medium {{if .Active}}border-blue-600 text-blue-600{{else}}border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700{{end}}">{{.Label}}</a>{{end}}
-</div>
-
 <div id="trending-panel" class="space-y-6">
 {{template "trendingPanel" .}}
 </div>
 {{end}}
 
 {{define "trendingPanel"}}
-<section class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+<div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-gray-200 pb-0">
+	<div class="flex gap-1">
+		{{range .Windows}}<a href="/?window={{.Value}}" hx-get="/?window={{.Value}}" hx-target="#trending-panel" hx-push-url="true"
+			class="-mb-px border-b-2 px-3 py-2 text-sm font-medium {{if .Active}}border-blue-600 text-blue-600{{else}}border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700{{end}}">{{.Label}}</a>{{end}}
+	</div>
+	<span class="pb-2 text-xs text-gray-500">{{.WindowRangeLabel}}</span>
+</div>
+
+<section class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+	<div class="rounded-xl border border-gray-200 bg-white p-4 text-center">
+		<div class="text-2xl font-bold text-gray-900">{{.ArticleCount}}</div>
+		<div class="text-xs font-medium uppercase tracking-wide text-gray-500">Articles</div>
+	</div>
+	<div class="rounded-xl border border-gray-200 bg-white p-4 text-center">
+		<div class="text-2xl font-bold text-gray-900">{{.EntityCount}}</div>
+		<div class="text-xs font-medium uppercase tracking-wide text-gray-500">Entities mentioned</div>
+	</div>
 	<div class="rounded-xl border border-gray-200 bg-white p-4 text-center">
 		<div class="text-2xl font-bold text-green-600">{{.Sentiment.Positive}}</div>
 		<div class="text-xs font-medium uppercase tracking-wide text-gray-500">Positive</div>
-	</div>
-	<div class="rounded-xl border border-gray-200 bg-white p-4 text-center">
-		<div class="text-2xl font-bold text-gray-500">{{.Sentiment.Neutral}}</div>
-		<div class="text-xs font-medium uppercase tracking-wide text-gray-500">Neutral</div>
 	</div>
 	<div class="rounded-xl border border-gray-200 bg-white p-4 text-center">
 		<div class="text-2xl font-bold text-red-600">{{.Sentiment.Negative}}</div>
@@ -105,11 +112,7 @@ var tmpl = template.Must(template.New("ui").Parse(`
 	</div>
 </section>
 
-<section class="grid grid-cols-1 gap-4 lg:grid-cols-3">
-	<div class="rounded-xl border border-gray-200 bg-white p-4">
-		<h2 class="mb-2 text-sm font-semibold text-gray-700">Top entities by mentions</h2>
-		<div class="h-64"><canvas id="bar-chart"></canvas></div>
-	</div>
+<section class="grid grid-cols-1 gap-4 lg:grid-cols-2">
 	<div class="rounded-xl border border-gray-200 bg-white p-4">
 		<h2 class="mb-2 text-sm font-semibold text-gray-700">Mentions &amp; sentiment over time</h2>
 		<div class="h-64"><canvas id="trend-chart"></canvas></div>
@@ -122,16 +125,16 @@ var tmpl = template.Must(template.New("ui").Parse(`
 
 <section class="grid grid-cols-1 gap-4 lg:grid-cols-3">
 	<div class="rounded-xl border border-gray-200 bg-white p-4">
-		<h2 class="mb-3 text-sm font-semibold text-gray-700">Top persons</h2>
-		{{template "entityList" .TopPersons}}
+		<h2 class="mb-1 text-sm font-semibold text-gray-700">Top persons</h2>
+		{{template "entityRankList" .TopPersons}}
 	</div>
 	<div class="rounded-xl border border-gray-200 bg-white p-4">
-		<h2 class="mb-3 text-sm font-semibold text-gray-700">Top orgs</h2>
-		{{template "entityList" .TopOrgs}}
+		<h2 class="mb-1 text-sm font-semibold text-gray-700">Top orgs</h2>
+		{{template "entityRankList" .TopOrgs}}
 	</div>
 	<div class="rounded-xl border border-gray-200 bg-white p-4">
-		<h2 class="mb-3 text-sm font-semibold text-gray-700">Top events</h2>
-		{{template "entityList" .TopEvents}}
+		<h2 class="mb-1 text-sm font-semibold text-gray-700">Top events</h2>
+		{{template "entityRankList" .TopEvents}}
 	</div>
 </section>
 
@@ -143,11 +146,6 @@ var tmpl = template.Must(template.New("ui").Parse(`
 <script>
 (function() {
 	const chartData = {{.ChartDataJSON}};
-	new Chart(document.getElementById('bar-chart'), {
-		type: 'bar',
-		data: { labels: chartData.labels, datasets: [{ label: 'Mentions', data: chartData.mentionCounts, backgroundColor: '#3b82f6', borderRadius: 4 }] },
-		options: { maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } } }
-	});
 	new Chart(document.getElementById('trend-chart'), {
 		type: 'line',
 		data: {
@@ -168,8 +166,8 @@ var tmpl = template.Must(template.New("ui").Parse(`
 	new Chart(document.getElementById('sentiment-pie-chart'), {
 		type: 'pie',
 		data: {
-			labels: ['Positive', 'Neutral', 'Negative'],
-			datasets: [{ data: [chartData.sentimentPositive, chartData.sentimentNeutral, chartData.sentimentNegative], backgroundColor: ['#16a34a', '#9ca3af', '#dc2626'] }]
+			labels: ['Positive', 'Negative'],
+			datasets: [{ data: [chartData.sentimentPositive, chartData.sentimentNegative], backgroundColor: ['#16a34a', '#dc2626'] }]
 		},
 		options: { maintainAspectRatio: false }
 	});
@@ -177,28 +175,26 @@ var tmpl = template.Must(template.New("ui").Parse(`
 </script>
 {{end}}
 
-{{define "entityList"}}
-<div class="overflow-x-auto">
-<table class="w-full text-sm">
-	<thead>
-		<tr class="border-b border-gray-200 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
-			<th class="py-2 pr-4">Entity</th><th class="py-2 pr-4">Type</th><th class="py-2 pr-4 text-right">Mentions</th><th class="py-2 text-right">Sentiment</th>
-		</tr>
-	</thead>
-	<tbody class="divide-y divide-gray-100">
+{{define "entityRankList"}}
+{{if .}}
+<ol class="divide-y divide-gray-100">
 	{{range .}}
-		<tr class="hover:bg-gray-50">
-			<td class="py-2 pr-4"><a href="/entities/{{.ID}}" class="font-medium text-gray-900 hover:text-blue-600">{{.Name}}</a></td>
-			<td class="py-2 pr-4">{{template "typeBadge" .Type}}</td>
-			<td class="py-2 pr-4 text-right tabular-nums">{{.MentionCount}}</td>
-			<td class="py-2 text-right tabular-nums {{if gt .SentimentScore 0.0}}text-green-600{{else if lt .SentimentScore 0.0}}text-red-600{{else}}text-gray-500{{end}}">{{printf "%.2f" .SentimentScore}}</td>
-		</tr>
-	{{else}}
-		<tr><td colspan="4" class="py-4 text-center text-gray-500">No trending entities yet.</td></tr>
+	<li class="flex items-center gap-3 py-2.5">
+		<span class="w-4 shrink-0 text-right text-xs font-semibold tabular-nums text-gray-300">{{.Rank}}</span>
+		<div class="min-w-0 flex-1">
+			<a href="/entities/{{.ID}}" class="block truncate text-sm font-medium text-gray-900 hover:text-blue-600">{{.Name}}</a>
+			<div class="mt-1 h-1 w-full rounded-full bg-gray-100">
+				<div class="h-1 rounded-full bg-blue-500" style="width: {{.BarPercent}}%"></div>
+			</div>
+		</div>
+		<span class="shrink-0 text-xs font-medium tabular-nums text-gray-500">{{.MentionCount}}</span>
+		<span class="inline-block shrink-0 rounded-full px-1.5 py-0.5 text-xs font-medium tabular-nums {{if gt .SentimentScore 0.0}}bg-green-50 text-green-700{{else if lt .SentimentScore 0.0}}bg-red-50 text-red-700{{else}}bg-gray-100 text-gray-600{{end}}">{{printf "%.2f" .SentimentScore}}</span>
+	</li>
 	{{end}}
-	</tbody>
-</table>
-</div>
+</ol>
+{{else}}
+<p class="py-4 text-center text-sm text-gray-500">No trending entities yet.</p>
+{{end}}
 {{end}}
 
 {{define "entitySearchResults"}}
@@ -387,9 +383,12 @@ func tabsFor(active string) []windowTab {
 	return tabs
 }
 
+// Neutral is deliberately not tracked here: the sentiment model
+// (distilbert-base-uncased-finetuned-sst-2-english) is a binary
+// positive/negative classifier, so a mention's sentiment_score is never
+// meaningfully zero — a "Neutral" tile would show 0 essentially always.
 type sentimentSummary struct {
 	Positive int
-	Neutral  int
 	Negative int
 	Average  float64
 }
@@ -451,54 +450,64 @@ func toSourceBreakdownRows(rows []coreclient.SourceBreakdown) []sourceBreakdownR
 	return out
 }
 
+// rankedEntityRow is the UI-side view of coreclient.EntityRollup for the
+// home page's per-type top-10 lists (issue #32/#33 revamp): Rank (1-based)
+// and BarPercent (0-100, relative to the list's own top entity) replace
+// the old table's redundant Type column — every row in a given list is
+// already the same type, so showing it added nothing.
+type rankedEntityRow struct {
+	ID             int64
+	Rank           int
+	Name           string
+	MentionCount   int
+	SentimentScore float64
+	BarPercent     int
+}
+
+func toRankedEntityRows(entities []coreclient.EntityRollup) []rankedEntityRow {
+	max := 0
+	for _, e := range entities {
+		if e.MentionCount > max {
+			max = e.MentionCount
+		}
+	}
+	out := make([]rankedEntityRow, len(entities))
+	for i, e := range entities {
+		pct := 0
+		if max > 0 {
+			pct = e.MentionCount * 100 / max
+		}
+		out[i] = rankedEntityRow{ID: e.ID, Rank: i + 1, Name: e.Name, MentionCount: e.MentionCount, SentimentScore: e.SentimentScore, BarPercent: pct}
+	}
+	return out
+}
+
 // trendingChartPayload is marshaled to JSON and injected verbatim into the
 // trending page's <script> block; json.Marshal HTML-escapes by default,
 // so this is safe even though it's built from entity names we don't
 // control.
 type trendingChartPayload struct {
-	Labels            []string  `json:"labels"`
-	MentionCounts     []int     `json:"mentionCounts"`
 	TrendLabels       []string  `json:"trendLabels"`
 	TrendMentions     []int     `json:"trendMentions"`
 	TrendSentiment    []float64 `json:"trendSentiment"`
 	SentimentPositive int       `json:"sentimentPositive"`
-	SentimentNeutral  int       `json:"sentimentNeutral"`
 	SentimentNegative int       `json:"sentimentNegative"`
 }
 
 type trendingData struct {
-	Windows        []windowTab
-	TopPersons     []coreclient.EntityRollup
-	TopOrgs        []coreclient.EntityRollup
-	TopEvents      []coreclient.EntityRollup
-	Sentiment      sentimentSummary
-	RecentArticles []recentArticle
-	ChartDataJSON  template.JS
+	Windows          []windowTab
+	WindowRangeLabel string
+	ArticleCount     int
+	EntityCount      int
+	TopPersons       []rankedEntityRow
+	TopOrgs          []rankedEntityRow
+	TopEvents        []rankedEntityRow
+	Sentiment        sentimentSummary
+	RecentArticles   []recentArticle
+	ChartDataJSON    template.JS
 }
 
-// chartTopN caps how many entities feed the "top entities by mentions"
-// bar chart — the three per-type lists (up to 10 each) are merged and
-// re-ranked by mention count for this, since the chart shows one ranking
-// across all types rather than one per type.
-const chartTopN = 10
-
-func buildTrendingData(window string, topPersons, topOrgs, topEvents []coreclient.EntityRollup, overall []coreclient.OverallTrendPoint, breakdown coreclient.SentimentBreakdown, recentArticles []coreclient.RecentArticle) trendingData {
-	merged := make([]coreclient.EntityRollup, 0, len(topPersons)+len(topOrgs)+len(topEvents))
-	merged = append(merged, topPersons...)
-	merged = append(merged, topOrgs...)
-	merged = append(merged, topEvents...)
-	sort.Slice(merged, func(i, j int) bool { return merged[i].MentionCount > merged[j].MentionCount })
-	if len(merged) > chartTopN {
-		merged = merged[:chartTopN]
-	}
-
-	labels := make([]string, len(merged))
-	counts := make([]int, len(merged))
-	for i, e := range merged {
-		labels[i] = e.Name
-		counts[i] = e.MentionCount
-	}
-
+func buildTrendingData(window string, topPersons, topOrgs, topEvents []coreclient.EntityRollup, overall []coreclient.OverallTrendPoint, breakdown coreclient.SentimentBreakdown, windowStats coreclient.WindowStats, recentArticles []coreclient.RecentArticle) trendingData {
 	trendLabels := make([]string, len(overall))
 	trendMentions := make([]int, len(overall))
 	trendSentiment := make([]float64, len(overall))
@@ -509,9 +518,8 @@ func buildTrendingData(window string, topPersons, topOrgs, topEvents []coreclien
 	}
 
 	payload := trendingChartPayload{
-		Labels: labels, MentionCounts: counts,
 		TrendLabels: trendLabels, TrendMentions: trendMentions, TrendSentiment: trendSentiment,
-		SentimentPositive: breakdown.Positive, SentimentNeutral: breakdown.Neutral, SentimentNegative: breakdown.Negative,
+		SentimentPositive: breakdown.Positive, SentimentNegative: breakdown.Negative,
 	}
 	b, err := json.Marshal(payload)
 	if err != nil {
@@ -529,15 +537,51 @@ func buildTrendingData(window string, topPersons, topOrgs, topEvents []coreclien
 	}
 
 	return trendingData{
-		Windows:    tabsFor(window),
-		TopPersons: topPersons,
-		TopOrgs:    topOrgs,
-		TopEvents:  topEvents,
+		Windows:          tabsFor(window),
+		WindowRangeLabel: formatWindowRangeLabel(window, windowStats.WindowStart, windowStats.WindowEnd),
+		ArticleCount:     windowStats.ArticleCount,
+		EntityCount:      windowStats.EntityCount,
+		TopPersons:       toRankedEntityRows(topPersons),
+		TopOrgs:          toRankedEntityRows(topOrgs),
+		TopEvents:        toRankedEntityRows(topEvents),
 		Sentiment: sentimentSummary{
-			Positive: breakdown.Positive, Neutral: breakdown.Neutral, Negative: breakdown.Negative, Average: average,
+			Positive: breakdown.Positive, Negative: breakdown.Negative, Average: average,
 		},
 		RecentArticles: toRecentArticles(recentArticles),
 		ChartDataJSON:  template.JS(b),
+	}
+}
+
+// formatWindowRangeLabel turns a window's real start/end dates (as
+// returned by core's /api/stats, "2006-01-02" formatted) into a short
+// human label — e.g. "Aug 15, 2026" for a day, "Aug 10 – 16, 2026" for a
+// week — so the dashboard shows exactly what date range is selected, not
+// just a relative tab name. windowEnd is exclusive.
+func formatWindowRangeLabel(window, windowStart, windowEnd string) string {
+	start, err := time.Parse("2006-01-02", windowStart)
+	if err != nil {
+		return ""
+	}
+	end, err := time.Parse("2006-01-02", windowEnd)
+	if err != nil {
+		return ""
+	}
+	lastDay := end.AddDate(0, 0, -1)
+
+	switch window {
+	case "day":
+		return start.Format("Mon, Jan 2, 2006")
+	case "week":
+		if start.Month() == lastDay.Month() {
+			return fmt.Sprintf("%s %d–%d, %d", start.Format("Jan"), start.Day(), lastDay.Day(), start.Year())
+		}
+		return fmt.Sprintf("%s – %s", start.Format("Jan 2"), lastDay.Format("Jan 2, 2006"))
+	case "month":
+		return start.Format("January 2006")
+	case "year":
+		return start.Format("2006")
+	default:
+		return ""
 	}
 }
 

@@ -680,3 +680,57 @@ func TestRollupStore_RelatedEntities_RespectsLimit(t *testing.T) {
 		t.Fatalf("expected limit=1 to return exactly 1 result, got %d: %+v", len(results), results)
 	}
 }
+
+func TestRollupStore_WindowStats_CountsDistinctArticlesAndEntities(t *testing.T) {
+	pool := testPool(t)
+	store := NewStore(pool, &fakeIndexer{})
+	rollupStore := NewRollupStore(pool)
+	ctx := context.Background()
+
+	seedSource(t, ctx, store)
+
+	published := time.Date(2026, time.August, 8, 9, 0, 0, 0, time.UTC)
+	articles := []pipeline.ArticleMentions{
+		{
+			Article: fetcher.Article{SourceID: "src-1", DedupKey: "dk-ws-1", URL: "https://example.com/ws1", Title: "WS1", Content: "body", PublishedAt: published},
+			Entities: []ner.Mention{
+				{Text: "Alpha Co", Type: "ORG", SentimentScore: 0.1},
+				{Text: "Beta Co", Type: "ORG", SentimentScore: 0.1},
+			},
+		},
+		{
+			// Same day, one more article mentioning Alpha Co again (not a
+			// new distinct entity) plus a brand-new entity.
+			Article: fetcher.Article{SourceID: "src-1", DedupKey: "dk-ws-2", URL: "https://example.com/ws2", Title: "WS2", Content: "body", PublishedAt: published.Add(time.Hour)},
+			Entities: []ner.Mention{
+				{Text: "Alpha Co", Type: "ORG", SentimentScore: 0.1},
+				{Text: "Gamma Co", Type: "ORG", SentimentScore: 0.1},
+			},
+		},
+		{
+			// A day outside the window — must not be counted.
+			Article:  fetcher.Article{SourceID: "src-1", DedupKey: "dk-ws-3", URL: "https://example.com/ws3", Title: "WS3", Content: "body", PublishedAt: published.AddDate(0, 0, 1)},
+			Entities: []ner.Mention{{Text: "Delta Co", Type: "ORG", SentimentScore: 0.1}},
+		},
+	}
+	if err := store.SaveArticles(ctx, articles); err != nil {
+		t.Fatalf("SaveArticles: %v", err)
+	}
+	if err := rollupStore.Compute(ctx); err != nil {
+		t.Fatalf("Compute: %v", err)
+	}
+
+	dayStart := rollup.WindowStart(rollup.Day, published)
+	dayEnd := rollup.WindowEnd(rollup.Day, dayStart)
+
+	stats, err := rollupStore.WindowStats(ctx, rollup.Day, dayStart, dayEnd)
+	if err != nil {
+		t.Fatalf("WindowStats: %v", err)
+	}
+	if stats.ArticleCount != 2 {
+		t.Errorf("expected ArticleCount=2 (WS3 falls outside the window), got %d", stats.ArticleCount)
+	}
+	if stats.EntityCount != 3 {
+		t.Errorf("expected EntityCount=3 (Alpha, Beta, Gamma — Alpha mentioned twice counts once), got %d", stats.EntityCount)
+	}
+}

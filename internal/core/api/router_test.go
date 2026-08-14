@@ -22,6 +22,7 @@ type fakeRollups struct {
 	sourceBreakdown []rollup.SourceBreakdown
 	recentArticles  []rollup.RecentArticle
 	relatedEntities []rollup.RelatedEntity
+	windowStats     rollup.WindowStats
 	err             error
 }
 
@@ -65,6 +66,13 @@ func (f *fakeRollups) SentimentBreakdown(ctx context.Context, window rollup.Wind
 		return rollup.SentimentBreakdown{}, f.err
 	}
 	return f.sentiment, nil
+}
+
+func (f *fakeRollups) WindowStats(ctx context.Context, window rollup.Window, windowStart, windowEnd time.Time) (rollup.WindowStats, error) {
+	if f.err != nil {
+		return rollup.WindowStats{}, f.err
+	}
+	return f.windowStats, nil
 }
 
 func (f *fakeRollups) SourceBreakdown(ctx context.Context, entityID int64) ([]rollup.SourceBreakdown, error) {
@@ -338,6 +346,40 @@ func TestHandleSentimentBreakdown_RejectsInvalidWindow(t *testing.T) {
 
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/sentiment?window=decade", nil))
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.Code)
+	}
+}
+
+func TestHandleWindowStats_ReturnsCountsAndDateRange(t *testing.T) {
+	rollups := &fakeRollups{windowStats: rollup.WindowStats{ArticleCount: 42, EntityCount: 17}}
+	router := NewRouter(rollups, &fakeSearcher{})
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/stats?window=week", nil))
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.Code)
+	}
+
+	var got windowStatsJSON
+	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.ArticleCount != 42 || got.EntityCount != 17 {
+		t.Errorf("unexpected counts: %+v", got)
+	}
+	if got.WindowStart == "" || got.WindowEnd == "" || got.WindowStart >= got.WindowEnd {
+		t.Errorf("expected WindowStart < WindowEnd, both non-empty, got %+v", got)
+	}
+}
+
+func TestHandleWindowStats_RejectsInvalidWindow(t *testing.T) {
+	router := NewRouter(&fakeRollups{}, &fakeSearcher{})
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/stats?window=decade", nil))
 
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", resp.Code)
