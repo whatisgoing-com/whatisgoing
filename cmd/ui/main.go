@@ -15,11 +15,12 @@ import (
 )
 
 const (
-	defaultTrendingLimit       = 20
+	defaultTopByTypeLimit      = 10
 	defaultSearchLimit         = 20
 	defaultOverallTrendDays    = 30
 	defaultEntitySearchHits    = 10
 	defaultRecentArticlesLimit = 10
+	defaultRelatedEntityLimit  = 10
 )
 
 var validWindows = map[string]bool{"day": true, "week": true, "month": true, "year": true}
@@ -83,9 +84,21 @@ func (h *handlers) handleTrending(w http.ResponseWriter, r *http.Request) {
 		window = "day"
 	}
 
-	entities, err := h.core.Trending(r.Context(), window, defaultTrendingLimit)
+	topPersons, err := h.core.Trending(r.Context(), window, "PERSON", defaultTopByTypeLimit)
 	if err != nil {
-		log.Printf("ui: trending: %v", err)
+		log.Printf("ui: trending (persons): %v", err)
+		http.Error(w, "failed to load trending entities", http.StatusBadGateway)
+		return
+	}
+	topOrgs, err := h.core.Trending(r.Context(), window, "ORG", defaultTopByTypeLimit)
+	if err != nil {
+		log.Printf("ui: trending (orgs): %v", err)
+		http.Error(w, "failed to load trending entities", http.StatusBadGateway)
+		return
+	}
+	topEvents, err := h.core.Trending(r.Context(), window, "EVENT", defaultTopByTypeLimit)
+	if err != nil {
+		log.Printf("ui: trending (events): %v", err)
 		http.Error(w, "failed to load trending entities", http.StatusBadGateway)
 		return
 	}
@@ -111,7 +124,7 @@ func (h *handlers) handleTrending(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := buildTrendingData(window, entities, overall, breakdown, recentArticles)
+	data := buildTrendingData(window, topPersons, topOrgs, topEvents, overall, breakdown, recentArticles)
 
 	if r.Header.Get("HX-Request") == "true" {
 		renderPartial(w, "trendingPanel", data)
@@ -175,7 +188,14 @@ func (h *handlers) handleEntityDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	renderPage(w, "entityContent", buildEntityPageData(detail, sourceBreakdown, recentArticles))
+	relatedEntities, err := h.core.RelatedEntities(r.Context(), id, defaultRelatedEntityLimit)
+	if err != nil {
+		log.Printf("ui: related entities: %v", err)
+		http.Error(w, "failed to load related entities", http.StatusBadGateway)
+		return
+	}
+
+	renderPage(w, "entityContent", buildEntityPageData(detail, sourceBreakdown, recentArticles, relatedEntities))
 }
 
 func (h *handlers) handleSearch(w http.ResponseWriter, r *http.Request) {

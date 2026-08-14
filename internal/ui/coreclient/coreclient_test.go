@@ -16,17 +16,35 @@ func TestClient_Trending_ParsesResponse(t *testing.T) {
 		if got := r.URL.Query().Get("window"); got != "week" {
 			t.Errorf("expected window=week, got %q", got)
 		}
+		if got := r.URL.Query().Get("type"); got != "" {
+			t.Errorf("expected no type param, got %q", got)
+		}
 		json.NewEncoder(w).Encode([]EntityRollup{{ID: 1, Name: "Elon Musk", Type: "PERSON", MentionCount: 5}})
 	}))
 	defer server.Close()
 
 	client := NewClient(server.URL, nil)
-	results, err := client.Trending(context.Background(), "week", 10)
+	results, err := client.Trending(context.Background(), "week", "", 10)
 	if err != nil {
 		t.Fatalf("Trending() error = %v", err)
 	}
 	if len(results) != 1 || results[0].Name != "Elon Musk" {
 		t.Errorf("unexpected results: %+v", results)
+	}
+}
+
+func TestClient_Trending_SetsTypeWhenGiven(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("type"); got != "ORG" {
+			t.Errorf("expected type=ORG, got %q", got)
+		}
+		json.NewEncoder(w).Encode([]EntityRollup{})
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, nil)
+	if _, err := client.Trending(context.Background(), "day", "ORG", 10); err != nil {
+		t.Fatalf("Trending() error = %v", err)
 	}
 }
 
@@ -200,5 +218,24 @@ func TestClient_RecentArticles_SetsEntityIDWhenNonZero(t *testing.T) {
 	client := NewClient(server.URL, nil)
 	if _, err := client.RecentArticles(context.Background(), 42, 10); err != nil {
 		t.Fatalf("RecentArticles() error = %v", err)
+	}
+}
+
+func TestClient_RelatedEntities_ParsesResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/entities/42/related" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		json.NewEncoder(w).Encode([]RelatedEntity{{ID: 7, Name: "Sam Altman", Type: "PERSON", CooccurrenceCount: 4}})
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, nil)
+	results, err := client.RelatedEntities(context.Background(), 42, 10)
+	if err != nil {
+		t.Fatalf("RelatedEntities() error = %v", err)
+	}
+	if len(results) != 1 || results[0].Name != "Sam Altman" || results[0].CooccurrenceCount != 4 {
+		t.Errorf("unexpected results: %+v", results)
 	}
 }

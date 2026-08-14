@@ -54,6 +54,24 @@ func toSourceBreakdownJSON(b rollup.SourceBreakdown) sourceBreakdownJSON {
 	}
 }
 
+type relatedEntityJSON struct {
+	ID                int64  `json:"id"`
+	Name              string `json:"name"`
+	Type              string `json:"type"`
+	Description       string `json:"description,omitempty"`
+	CooccurrenceCount int    `json:"cooccurrence_count"`
+}
+
+func toRelatedEntityJSON(re rollup.RelatedEntity) relatedEntityJSON {
+	return relatedEntityJSON{
+		ID:                re.ID,
+		Name:              re.Name,
+		Type:              re.Type,
+		Description:       re.Description,
+		CooccurrenceCount: re.CooccurrenceCount,
+	}
+}
+
 type recentArticleJSON struct {
 	ID          int64  `json:"id"`
 	Title       string `json:"title"`
