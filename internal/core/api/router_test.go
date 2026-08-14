@@ -14,12 +14,14 @@ import (
 
 type fakeRollups struct {
 	top             []rollup.EntityRollup
+	topByType       []rollup.EntityRollup
 	trend           []rollup.EntityRollup
 	overall         []rollup.OverallTrendPoint
 	entitySearch    []rollup.EntitySummary
 	sentiment       rollup.SentimentBreakdown
 	sourceBreakdown []rollup.SourceBreakdown
 	recentArticles  []rollup.RecentArticle
+	relatedEntities []rollup.RelatedEntity
 	err             error
 }
 
@@ -28,6 +30,13 @@ func (f *fakeRollups) TopEntities(ctx context.Context, window rollup.Window, win
 		return nil, f.err
 	}
 	return f.top, nil
+}
+
+func (f *fakeRollups) TopEntitiesByType(ctx context.Context, window rollup.Window, windowStart time.Time, entityType string, limit int) ([]rollup.EntityRollup, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.topByType, nil
 }
 
 func (f *fakeRollups) ReputationTrend(ctx context.Context, entityID int64, window rollup.Window) ([]rollup.EntityRollup, error) {
@@ -72,6 +81,13 @@ func (f *fakeRollups) RecentArticles(ctx context.Context, entityID int64, limit 
 	return f.recentArticles, nil
 }
 
+func (f *fakeRollups) RelatedEntities(ctx context.Context, entityID int64, limit int) ([]rollup.RelatedEntity, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.relatedEntities, nil
+}
+
 type fakeSearcher struct {
 	docs []search.Document
 	err  error
@@ -103,6 +119,40 @@ func TestHandleTrending_DefaultsToDayWindow(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Name != "Elon Musk" || got[0].MentionCount != 3 {
 		t.Errorf("unexpected response: %+v", got)
+	}
+}
+
+func TestHandleTrending_FiltersByType(t *testing.T) {
+	rollups := &fakeRollups{
+		top:       []rollup.EntityRollup{{EntityID: 1, EntityName: "mixed", EntityType: "PERSON"}},
+		topByType: []rollup.EntityRollup{{EntityID: 2, EntityName: "OpenAI", EntityType: "ORG", MentionCount: 7}},
+	}
+	router := NewRouter(rollups, &fakeSearcher{})
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/trending?type=ORG", nil))
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.Code)
+	}
+
+	var got []entityRollupJSON
+	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "OpenAI" || got[0].MentionCount != 7 {
+		t.Errorf("unexpected response: %+v", got)
+	}
+}
+
+func TestHandleTrending_RejectsInvalidType(t *testing.T) {
+	router := NewRouter(&fakeRollups{}, &fakeSearcher{})
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/trending?type=PLANET", nil))
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.Code)
 	}
 }
 
@@ -354,6 +404,39 @@ func TestHandleRecentArticles_RejectsInvalidEntityID(t *testing.T) {
 
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/articles/recent?entity_id=not-a-number", nil))
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.Code)
+	}
+}
+
+func TestHandleRelatedEntities_ReturnsResults(t *testing.T) {
+	rollups := &fakeRollups{relatedEntities: []rollup.RelatedEntity{
+		{ID: 7, Name: "Sam Altman", Type: "PERSON", CooccurrenceCount: 4},
+	}}
+	router := NewRouter(rollups, &fakeSearcher{})
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/entities/42/related", nil))
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.Code)
+	}
+
+	var got []relatedEntityJSON
+	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "Sam Altman" || got[0].CooccurrenceCount != 4 {
+		t.Errorf("unexpected response: %+v", got)
+	}
+}
+
+func TestHandleRelatedEntities_RejectsNonNumericID(t *testing.T) {
+	router := NewRouter(&fakeRollups{}, &fakeSearcher{})
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/entities/not-a-number/related", nil))
 
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", resp.Code)

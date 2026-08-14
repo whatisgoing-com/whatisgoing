@@ -97,6 +97,27 @@ func (s *RollupStore) TopEntities(ctx context.Context, window rollup.Window, win
 	return scanEntityRollups(rows)
 }
 
+// TopEntitiesByType returns the most-mentioned entities of a single type
+// (PERSON/ORG/EVENT) for a window/window start, ranked by mention_count
+// descending — the home page's per-type top-10 lists (issue #32).
+func (s *RollupStore) TopEntitiesByType(ctx context.Context, window rollup.Window, windowStart time.Time, entityType string, limit int) ([]rollup.EntityRollup, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT e.id, e.name, e.type, COALESCE(e.description, ''), r.window_kind, r.window_start, r.mention_count, r.sentiment_score, r.positive_count, r.neutral_count, r.negative_count
+		FROM entity_rollups r
+		JOIN entities e ON e.id = r.entity_id
+		WHERE r.window_kind = $1 AND r.window_start = $2 AND e.type = $3::entity_type
+		ORDER BY r.mention_count DESC
+		LIMIT $4`,
+		string(window), windowStart, entityType, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query top entities by type: %w", err)
+	}
+	defer rows.Close()
+
+	return scanEntityRollups(rows)
+}
+
 // ReputationTrend returns an entity's mention_count/sentiment_score over
 // time at a given window granularity, oldest first.
 func (s *RollupStore) ReputationTrend(ctx context.Context, entityID int64, window rollup.Window) ([]rollup.EntityRollup, error) {
@@ -294,6 +315,41 @@ func (s *RollupStore) RecentArticles(ctx context.Context, entityID int64, limit 
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate recent articles: %w", err)
+	}
+	return results, nil
+}
+
+// RelatedEntities returns the entities that co-occurred most often with
+// entityID across all articles, ranked by shared-article count descending
+// — the entity detail page's "related entities" section (issue #32).
+// entity_cooccurrence rows are undirected (entity_a_id < entity_b_id by
+// constraint), so entityID can appear on either side of a given row.
+func (s *RollupStore) RelatedEntities(ctx context.Context, entityID int64, limit int) ([]rollup.RelatedEntity, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT e.id, e.name, e.type, COALESCE(e.description, ''), COUNT(*) AS cooccurrence_count
+		FROM entity_cooccurrence c
+		JOIN entities e ON e.id = CASE WHEN c.entity_a_id = $1 THEN c.entity_b_id ELSE c.entity_a_id END
+		WHERE c.entity_a_id = $1 OR c.entity_b_id = $1
+		GROUP BY e.id, e.name, e.type, e.description
+		ORDER BY cooccurrence_count DESC
+		LIMIT $2`,
+		entityID, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query related entities: %w", err)
+	}
+	defer rows.Close()
+
+	var results []rollup.RelatedEntity
+	for rows.Next() {
+		var re rollup.RelatedEntity
+		if err := rows.Scan(&re.ID, &re.Name, &re.Type, &re.Description, &re.CooccurrenceCount); err != nil {
+			return nil, fmt.Errorf("scan related entity: %w", err)
+		}
+		results = append(results, re)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate related entities: %w", err)
 	}
 	return results, nil
 }

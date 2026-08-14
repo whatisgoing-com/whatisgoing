@@ -537,3 +537,146 @@ func TestRollupStore_RecentArticles_NewestFirstAndOptionalEntityFilter(t *testin
 		t.Fatalf("expected only [Newest] for Tesla, got %+v", filtered)
 	}
 }
+
+func TestRollupStore_TopEntitiesByType_FiltersToOneType(t *testing.T) {
+	pool := testPool(t)
+	store := NewStore(pool, &fakeIndexer{})
+	rollupStore := NewRollupStore(pool)
+	ctx := context.Background()
+
+	seedSource(t, ctx, store)
+
+	published := time.Date(2026, time.August, 8, 9, 0, 0, 0, time.UTC)
+	articles := []pipeline.ArticleMentions{
+		{
+			Article: fetcher.Article{SourceID: "src-1", DedupKey: "dk-tbt-1", URL: "https://example.com/tbt1", Title: "TBT1", Content: "body", PublishedAt: published},
+			Entities: []ner.Mention{
+				{Text: "Elon Musk", Type: "PERSON", SentimentScore: 0.1},
+				{Text: "Tesla", Type: "ORG", SentimentScore: 0.1},
+				{Text: "Tesla", Type: "ORG", SentimentScore: 0.1},
+			},
+		},
+		{
+			Article: fetcher.Article{SourceID: "src-1", DedupKey: "dk-tbt-2", URL: "https://example.com/tbt2", Title: "TBT2", Content: "body", PublishedAt: published.Add(time.Hour)},
+			Entities: []ner.Mention{
+				{Text: "Tesla", Type: "ORG", SentimentScore: 0.1},
+			},
+		},
+	}
+	if err := store.SaveArticles(ctx, articles); err != nil {
+		t.Fatalf("SaveArticles: %v", err)
+	}
+	if err := rollupStore.Compute(ctx); err != nil {
+		t.Fatalf("Compute: %v", err)
+	}
+
+	dayStart := rollup.WindowStart(rollup.Day, published)
+	results, err := rollupStore.TopEntitiesByType(ctx, rollup.Day, dayStart, "ORG", 10)
+	if err != nil {
+		t.Fatalf("TopEntitiesByType: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected only the ORG entity, got %d: %+v", len(results), results)
+	}
+	if results[0].EntityName != "Tesla" || results[0].MentionCount != 2 {
+		t.Errorf("expected Tesla with mention_count=2, got %+v", results[0])
+	}
+}
+
+func TestRollupStore_RelatedEntities_RanksByCooccurrenceCountRegardlessOfSide(t *testing.T) {
+	pool := testPool(t)
+	store := NewStore(pool, &fakeIndexer{})
+	rollupStore := NewRollupStore(pool)
+	ctx := context.Background()
+
+	seedSource(t, ctx, store)
+
+	published := time.Date(2026, time.August, 8, 9, 0, 0, 0, time.UTC)
+
+	// Elon Musk co-occurs with Tesla in 2 articles and with SpaceX in 1 —
+	// Tesla should rank first. Order of entity names within each article
+	// varies deliberately, so this also exercises both sides of
+	// entity_cooccurrence's entity_a_id/entity_b_id ordering.
+	articles := []pipeline.ArticleMentions{
+		{
+			Article: fetcher.Article{SourceID: "src-1", DedupKey: "dk-re-1", URL: "https://example.com/re1", Title: "RE1", Content: "body", PublishedAt: published},
+			Entities: []ner.Mention{
+				{Text: "Elon Musk", Type: "PERSON", SentimentScore: 0.1},
+				{Text: "Tesla", Type: "ORG", SentimentScore: 0.1},
+			},
+		},
+		{
+			Article: fetcher.Article{SourceID: "src-1", DedupKey: "dk-re-2", URL: "https://example.com/re2", Title: "RE2", Content: "body", PublishedAt: published.Add(time.Hour)},
+			Entities: []ner.Mention{
+				{Text: "Tesla", Type: "ORG", SentimentScore: 0.1},
+				{Text: "Elon Musk", Type: "PERSON", SentimentScore: 0.1},
+			},
+		},
+		{
+			Article: fetcher.Article{SourceID: "src-1", DedupKey: "dk-re-3", URL: "https://example.com/re3", Title: "RE3", Content: "body", PublishedAt: published.Add(2 * time.Hour)},
+			Entities: []ner.Mention{
+				{Text: "Elon Musk", Type: "PERSON", SentimentScore: 0.1},
+				{Text: "SpaceX", Type: "ORG", SentimentScore: 0.1},
+			},
+		},
+	}
+	if err := store.SaveArticles(ctx, articles); err != nil {
+		t.Fatalf("SaveArticles: %v", err)
+	}
+
+	var muskID int64
+	if err := pool.QueryRow(ctx, `SELECT id FROM entities WHERE name = 'Elon Musk'`).Scan(&muskID); err != nil {
+		t.Fatalf("look up Elon Musk id: %v", err)
+	}
+
+	results, err := rollupStore.RelatedEntities(ctx, muskID, 10)
+	if err != nil {
+		t.Fatalf("RelatedEntities: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 related entities, got %d: %+v", len(results), results)
+	}
+	if results[0].Name != "Tesla" || results[0].CooccurrenceCount != 2 {
+		t.Errorf("expected Tesla first with count=2, got %+v", results[0])
+	}
+	if results[1].Name != "SpaceX" || results[1].CooccurrenceCount != 1 {
+		t.Errorf("expected SpaceX second with count=1, got %+v", results[1])
+	}
+}
+
+func TestRollupStore_RelatedEntities_RespectsLimit(t *testing.T) {
+	pool := testPool(t)
+	store := NewStore(pool, &fakeIndexer{})
+	rollupStore := NewRollupStore(pool)
+	ctx := context.Background()
+
+	seedSource(t, ctx, store)
+
+	published := time.Date(2026, time.August, 8, 9, 0, 0, 0, time.UTC)
+	articles := []pipeline.ArticleMentions{
+		{
+			Article: fetcher.Article{SourceID: "src-1", DedupKey: "dk-rel-1", URL: "https://example.com/rel1", Title: "REL1", Content: "body", PublishedAt: published},
+			Entities: []ner.Mention{
+				{Text: "Hub Corp", Type: "ORG", SentimentScore: 0.1},
+				{Text: "Neighbor A", Type: "ORG", SentimentScore: 0.1},
+				{Text: "Neighbor B", Type: "ORG", SentimentScore: 0.1},
+			},
+		},
+	}
+	if err := store.SaveArticles(ctx, articles); err != nil {
+		t.Fatalf("SaveArticles: %v", err)
+	}
+
+	var hubID int64
+	if err := pool.QueryRow(ctx, `SELECT id FROM entities WHERE name = 'Hub Corp'`).Scan(&hubID); err != nil {
+		t.Fatalf("look up Hub Corp id: %v", err)
+	}
+
+	results, err := rollupStore.RelatedEntities(ctx, hubID, 1)
+	if err != nil {
+		t.Fatalf("RelatedEntities: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected limit=1 to return exactly 1 result, got %d: %+v", len(results), results)
+	}
+}

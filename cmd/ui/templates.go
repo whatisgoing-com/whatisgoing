@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"sort"
 	"time"
 
 	"github.com/whatisgoing-com/whatisgoing/internal/ui/coreclient"
@@ -119,9 +120,19 @@ var tmpl = template.Must(template.New("ui").Parse(`
 	</div>
 </section>
 
-<section class="rounded-xl border border-gray-200 bg-white p-4">
-	<h2 class="mb-3 text-sm font-semibold text-gray-700">Entities</h2>
-	{{template "entityList" .Entities}}
+<section class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+	<div class="rounded-xl border border-gray-200 bg-white p-4">
+		<h2 class="mb-3 text-sm font-semibold text-gray-700">Top persons</h2>
+		{{template "entityList" .TopPersons}}
+	</div>
+	<div class="rounded-xl border border-gray-200 bg-white p-4">
+		<h2 class="mb-3 text-sm font-semibold text-gray-700">Top orgs</h2>
+		{{template "entityList" .TopOrgs}}
+	</div>
+	<div class="rounded-xl border border-gray-200 bg-white p-4">
+		<h2 class="mb-3 text-sm font-semibold text-gray-700">Top events</h2>
+		{{template "entityList" .TopEvents}}
+	</div>
 </section>
 
 <section class="rounded-xl border border-gray-200 bg-white p-4">
@@ -220,6 +231,21 @@ var tmpl = template.Must(template.New("ui").Parse(`
 {{end}}
 {{end}}
 
+{{define "relatedEntities"}}
+{{if .}}
+<ul class="divide-y divide-gray-100">
+	{{range .}}
+	<li class="flex items-center justify-between py-2 text-sm">
+		<a href="/entities/{{.ID}}" class="font-medium text-gray-900 hover:text-blue-600">{{.Name}}</a>
+		<span class="flex items-center gap-2">{{template "typeBadge" .Type}}<span class="tabular-nums text-gray-500">{{.CooccurrenceCount}}</span></span>
+	</li>
+	{{end}}
+</ul>
+{{else}}
+<p class="text-sm text-gray-500">No related entities yet.</p>
+{{end}}
+{{end}}
+
 {{define "entityContent"}}
 <p><a href="/" class="text-sm text-blue-600 hover:underline">&larr; Trending</a></p>
 <div class="flex items-center gap-2">
@@ -241,7 +267,7 @@ var tmpl = template.Must(template.New("ui").Parse(`
 	</div>
 </section>
 
-<section class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+<section class="grid grid-cols-1 gap-4 lg:grid-cols-3">
 	<div class="rounded-xl border border-gray-200 bg-white p-4">
 		<h2 class="mb-3 text-sm font-semibold text-gray-700">By source</h2>
 		{{template "sourceBreakdown" .SourceBreakdown}}
@@ -249,6 +275,10 @@ var tmpl = template.Must(template.New("ui").Parse(`
 	<div class="rounded-xl border border-gray-200 bg-white p-4">
 		<h2 class="mb-1 text-sm font-semibold text-gray-700">Recent articles</h2>
 		{{template "recentArticles" .RecentArticles}}
+	</div>
+	<div class="rounded-xl border border-gray-200 bg-white p-4">
+		<h2 class="mb-3 text-sm font-semibold text-gray-700">Related entities</h2>
+		{{template "relatedEntities" .RelatedEntities}}
 	</div>
 </section>
 
@@ -438,16 +468,33 @@ type trendingChartPayload struct {
 
 type trendingData struct {
 	Windows        []windowTab
-	Entities       []coreclient.EntityRollup
+	TopPersons     []coreclient.EntityRollup
+	TopOrgs        []coreclient.EntityRollup
+	TopEvents      []coreclient.EntityRollup
 	Sentiment      sentimentSummary
 	RecentArticles []recentArticle
 	ChartDataJSON  template.JS
 }
 
-func buildTrendingData(window string, entities []coreclient.EntityRollup, overall []coreclient.OverallTrendPoint, breakdown coreclient.SentimentBreakdown, recentArticles []coreclient.RecentArticle) trendingData {
-	labels := make([]string, len(entities))
-	counts := make([]int, len(entities))
-	for i, e := range entities {
+// chartTopN caps how many entities feed the "top entities by mentions"
+// bar chart — the three per-type lists (up to 10 each) are merged and
+// re-ranked by mention count for this, since the chart shows one ranking
+// across all types rather than one per type.
+const chartTopN = 10
+
+func buildTrendingData(window string, topPersons, topOrgs, topEvents []coreclient.EntityRollup, overall []coreclient.OverallTrendPoint, breakdown coreclient.SentimentBreakdown, recentArticles []coreclient.RecentArticle) trendingData {
+	merged := make([]coreclient.EntityRollup, 0, len(topPersons)+len(topOrgs)+len(topEvents))
+	merged = append(merged, topPersons...)
+	merged = append(merged, topOrgs...)
+	merged = append(merged, topEvents...)
+	sort.Slice(merged, func(i, j int) bool { return merged[i].MentionCount > merged[j].MentionCount })
+	if len(merged) > chartTopN {
+		merged = merged[:chartTopN]
+	}
+
+	labels := make([]string, len(merged))
+	counts := make([]int, len(merged))
+	for i, e := range merged {
 		labels[i] = e.Name
 		counts[i] = e.MentionCount
 	}
@@ -482,8 +529,10 @@ func buildTrendingData(window string, entities []coreclient.EntityRollup, overal
 	}
 
 	return trendingData{
-		Windows:  tabsFor(window),
-		Entities: entities,
+		Windows:    tabsFor(window),
+		TopPersons: topPersons,
+		TopOrgs:    topOrgs,
+		TopEvents:  topEvents,
 		Sentiment: sentimentSummary{
 			Positive: breakdown.Positive, Neutral: breakdown.Neutral, Negative: breakdown.Negative, Average: average,
 		},
@@ -505,10 +554,11 @@ type entityPageData struct {
 	Detail          coreclient.EntityDetail
 	SourceBreakdown []sourceBreakdownRow
 	RecentArticles  []recentArticle
+	RelatedEntities []coreclient.RelatedEntity
 	ChartDataJSON   template.JS
 }
 
-func buildEntityPageData(detail coreclient.EntityDetail, sourceBreakdown []coreclient.SourceBreakdown, recentArticles []coreclient.RecentArticle) entityPageData {
+func buildEntityPageData(detail coreclient.EntityDetail, sourceBreakdown []coreclient.SourceBreakdown, recentArticles []coreclient.RecentArticle, relatedEntities []coreclient.RelatedEntity) entityPageData {
 	labels := make([]string, len(detail.Trend))
 	mentions := make([]int, len(detail.Trend))
 	sentiment := make([]float64, len(detail.Trend))
@@ -536,6 +586,7 @@ func buildEntityPageData(detail coreclient.EntityDetail, sourceBreakdown []corec
 		Detail:          detail,
 		SourceBreakdown: toSourceBreakdownRows(sourceBreakdown),
 		RecentArticles:  toRecentArticles(recentArticles),
+		RelatedEntities: relatedEntities,
 		ChartDataJSON:   template.JS(b),
 	}
 }

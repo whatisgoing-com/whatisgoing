@@ -86,6 +86,19 @@ type SourceBreakdown struct {
 	AvgSentiment float64
 }
 
+// RelatedEntity is another entity that co-occurred with a given entity in
+// at least one article, ranked by how many articles they shared — the
+// entity detail page's "related entities" section (issue #32). Backed by
+// entity_cooccurrence, which is populated on ingest but had no reader
+// until this feature.
+type RelatedEntity struct {
+	ID                int64
+	Name              string
+	Type              string
+	Description       string
+	CooccurrenceCount int
+}
+
 // RecentArticle is a lightweight article summary — headline, source,
 // link, publish time — for the recent-articles list (issue #24). No body
 // content: the dashboard links out to the original rather than

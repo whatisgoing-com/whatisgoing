@@ -16,12 +16,14 @@ import (
 // postgres) that this API needs.
 type RollupReader interface {
 	TopEntities(ctx context.Context, window rollup.Window, windowStart time.Time, limit int) ([]rollup.EntityRollup, error)
+	TopEntitiesByType(ctx context.Context, window rollup.Window, windowStart time.Time, entityType string, limit int) ([]rollup.EntityRollup, error)
 	ReputationTrend(ctx context.Context, entityID int64, window rollup.Window) ([]rollup.EntityRollup, error)
 	OverallTrend(ctx context.Context, window rollup.Window, limit int) ([]rollup.OverallTrendPoint, error)
 	SearchEntities(ctx context.Context, query string, limit int) ([]rollup.EntitySummary, error)
 	SentimentBreakdown(ctx context.Context, window rollup.Window, windowStart time.Time) (rollup.SentimentBreakdown, error)
 	SourceBreakdown(ctx context.Context, entityID int64) ([]rollup.SourceBreakdown, error)
 	RecentArticles(ctx context.Context, entityID int64, limit int) ([]rollup.RecentArticle, error)
+	RelatedEntities(ctx context.Context, entityID int64, limit int) ([]rollup.RelatedEntity, error)
 }
 
 func NewRouter(rollups RollupReader, searcher search.Searcher) http.Handler {
@@ -36,6 +38,7 @@ func NewRouter(rollups RollupReader, searcher search.Searcher) http.Handler {
 	mux.HandleFunc("GET /api/search", h.handleSearch)
 	mux.HandleFunc("GET /api/sentiment", h.handleSentimentBreakdown)
 	mux.HandleFunc("GET /api/entities/{id}/sources", h.handleSourceBreakdown)
+	mux.HandleFunc("GET /api/entities/{id}/related", h.handleRelatedEntities)
 	mux.HandleFunc("GET /api/articles/recent", h.handleRecentArticles)
 	return mux
 }

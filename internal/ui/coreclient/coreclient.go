@@ -73,6 +73,14 @@ type RecentArticle struct {
 	PublishedAt string `json:"published_at"`
 }
 
+type RelatedEntity struct {
+	ID                int64  `json:"id"`
+	Name              string `json:"name"`
+	Type              string `json:"type"`
+	Description       string `json:"description"`
+	CooccurrenceCount int    `json:"cooccurrence_count"`
+}
+
 type Client struct {
 	httpClient *http.Client
 	baseURL    string
@@ -86,9 +94,13 @@ func NewClient(baseURL string, httpClient *http.Client) *Client {
 }
 
 // Trending returns the most-mentioned entities for a window ("day",
-// "week", "month", "year").
-func (c *Client) Trending(ctx context.Context, window string, limit int) ([]EntityRollup, error) {
+// "week", "month", "year"), optionally scoped to one entity type
+// (PERSON/ORG/EVENT) — pass "" for the unscoped, mixed-type ranking.
+func (c *Client) Trending(ctx context.Context, window, entityType string, limit int) ([]EntityRollup, error) {
 	q := url.Values{"window": {window}, "limit": {strconv.Itoa(limit)}}
+	if entityType != "" {
+		q.Set("type", entityType)
+	}
 	var out []EntityRollup
 	if err := c.get(ctx, "/api/trending?"+q.Encode(), &out); err != nil {
 		return nil, fmt.Errorf("get trending: %w", err)
@@ -192,6 +204,17 @@ func (c *Client) RecentArticles(ctx context.Context, entityID int64, limit int) 
 	var out []RecentArticle
 	if err := c.get(ctx, "/api/articles/recent?"+q.Encode(), &out); err != nil {
 		return nil, fmt.Errorf("get recent articles: %w", err)
+	}
+	return out, nil
+}
+
+// RelatedEntities returns the entities that co-occurred most often with
+// entityID across articles, ranked by shared-article count descending.
+func (c *Client) RelatedEntities(ctx context.Context, entityID int64, limit int) ([]RelatedEntity, error) {
+	q := url.Values{"limit": {strconv.Itoa(limit)}}
+	var out []RelatedEntity
+	if err := c.get(ctx, fmt.Sprintf("/api/entities/%d/related?%s", entityID, q.Encode()), &out); err != nil {
+		return nil, fmt.Errorf("get related entities: %w", err)
 	}
 	return out, nil
 }
