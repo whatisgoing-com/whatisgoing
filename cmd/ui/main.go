@@ -117,6 +117,13 @@ func (h *handlers) handleTrending(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	windowStats, err := h.core.WindowStats(r.Context(), window)
+	if err != nil {
+		log.Printf("ui: window stats: %v", err)
+		http.Error(w, "failed to load window stats", http.StatusBadGateway)
+		return
+	}
+
 	recentArticles, err := h.core.RecentArticles(r.Context(), 0, defaultRecentArticlesLimit)
 	if err != nil {
 		log.Printf("ui: recent articles: %v", err)
@@ -124,7 +131,7 @@ func (h *handlers) handleTrending(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := buildTrendingData(window, topPersons, topOrgs, topEvents, overall, breakdown, recentArticles)
+	data := buildTrendingData(window, topPersons, topOrgs, topEvents, overall, breakdown, windowStats, recentArticles)
 
 	if r.Header.Get("HX-Request") == "true" {
 		renderPartial(w, "trendingPanel", data)

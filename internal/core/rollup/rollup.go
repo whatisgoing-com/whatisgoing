@@ -99,6 +99,14 @@ type RelatedEntity struct {
 	CooccurrenceCount int
 }
 
+// WindowStats is the count of distinct articles published and distinct
+// entities mentioned within a window bucket — the home page's "Articles"
+// and "Entities mentioned" stat tiles (issue #37).
+type WindowStats struct {
+	ArticleCount int
+	EntityCount  int
+}
+
 // RecentArticle is a lightweight article summary — headline, source,
 // link, publish time — for the recent-articles list (issue #24). No body
 // content: the dashboard links out to the original rather than
@@ -133,5 +141,23 @@ func WindowStart(window Window, t time.Time) time.Time {
 		return time.Date(t.Year(), time.January, 1, 0, 0, 0, 0, time.UTC)
 	default:
 		return time.Time{}
+	}
+}
+
+// WindowEnd returns the exclusive end of the window that windowStart (as
+// returned by WindowStart) begins — the day after, the Monday after next,
+// the 1st of next month, or Jan 1 of next year.
+func WindowEnd(window Window, windowStart time.Time) time.Time {
+	switch window {
+	case Day:
+		return windowStart.AddDate(0, 0, 1)
+	case Week:
+		return windowStart.AddDate(0, 0, 7)
+	case Month:
+		return windowStart.AddDate(0, 1, 0)
+	case Year:
+		return windowStart.AddDate(1, 0, 0)
+	default:
+		return windowStart
 	}
 }

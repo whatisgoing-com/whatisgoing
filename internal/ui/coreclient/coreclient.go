@@ -58,6 +58,13 @@ type SentimentBreakdown struct {
 	Negative int `json:"negative"`
 }
 
+type WindowStats struct {
+	ArticleCount int    `json:"article_count"`
+	EntityCount  int    `json:"entity_count"`
+	WindowStart  string `json:"window_start"`
+	WindowEnd    string `json:"window_end"`
+}
+
 type SourceBreakdown struct {
 	SourceID     string  `json:"source_id"`
 	SourceName   string  `json:"source_name"`
@@ -179,6 +186,18 @@ func (c *Client) SentimentBreakdown(ctx context.Context, window string) (Sentime
 	var out SentimentBreakdown
 	if err := c.get(ctx, "/api/sentiment?"+q.Encode(), &out); err != nil {
 		return SentimentBreakdown{}, fmt.Errorf("get sentiment breakdown: %w", err)
+	}
+	return out, nil
+}
+
+// WindowStats returns article/entity counts plus the real date range
+// covered by the selected window, for the home page's stat tiles and
+// window-range label.
+func (c *Client) WindowStats(ctx context.Context, window string) (WindowStats, error) {
+	q := url.Values{"window": {window}}
+	var out WindowStats
+	if err := c.get(ctx, "/api/stats?"+q.Encode(), &out); err != nil {
+		return WindowStats{}, fmt.Errorf("get window stats: %w", err)
 	}
 	return out, nil
 }

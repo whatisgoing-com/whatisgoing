@@ -240,6 +240,24 @@ func (s *RollupStore) SentimentBreakdown(ctx context.Context, window rollup.Wind
 	return b, nil
 }
 
+// WindowStats returns the distinct article and entity counts for a window
+// bucket — the home page's "Articles" and "Entities mentioned" stat tiles
+// (issue #35 follow-up). windowEnd is exclusive, as returned by
+// rollup.WindowEnd.
+func (s *RollupStore) WindowStats(ctx context.Context, window rollup.Window, windowStart, windowEnd time.Time) (rollup.WindowStats, error) {
+	var stats rollup.WindowStats
+	err := s.pool.QueryRow(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM articles WHERE COALESCE(published_at, fetched_at) >= $2 AND COALESCE(published_at, fetched_at) < $3),
+			(SELECT COUNT(DISTINCT entity_id) FROM entity_rollups WHERE window_kind = $1 AND window_start = $2)`,
+		string(window), windowStart, windowEnd,
+	).Scan(&stats.ArticleCount, &stats.EntityCount)
+	if err != nil {
+		return rollup.WindowStats{}, fmt.Errorf("query window stats: %w", err)
+	}
+	return stats, nil
+}
+
 // SourceBreakdown returns one entity's mention count + average sentiment
 // per source, across all time, ranked by mention count descending — the
 // entity detail page's by-source breakdown.

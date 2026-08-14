@@ -29,6 +29,28 @@ func TestWindowStart(t *testing.T) {
 	}
 }
 
+func TestWindowEnd(t *testing.T) {
+	tests := []struct {
+		window Window
+		start  time.Time
+		want   time.Time
+	}{
+		{Day, time.Date(2026, time.August, 8, 0, 0, 0, 0, time.UTC), time.Date(2026, time.August, 9, 0, 0, 0, 0, time.UTC)},
+		{Week, time.Date(2026, time.August, 3, 0, 0, 0, 0, time.UTC), time.Date(2026, time.August, 10, 0, 0, 0, 0, time.UTC)},
+		{Month, time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, time.September, 1, 0, 0, 0, 0, time.UTC)},
+		{Year, time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC), time.Date(2027, time.January, 1, 0, 0, 0, 0, time.UTC)},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.window), func(t *testing.T) {
+			got := WindowEnd(tt.window, tt.start)
+			if !got.Equal(tt.want) {
+				t.Errorf("WindowEnd(%s, %v) = %v, want %v", tt.window, tt.start, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestWindowStart_WeekHandlesSundayCorrectly(t *testing.T) {
 	// A Sunday's ISO week still starts on the preceding Monday, not the
 	// same day — this is the case Go's zero-indexed-from-Sunday Weekday()
