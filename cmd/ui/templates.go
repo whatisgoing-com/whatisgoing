@@ -122,16 +122,16 @@ var tmpl = template.Must(template.New("ui").Parse(`
 
 <section class="grid grid-cols-1 gap-4 lg:grid-cols-3">
 	<div class="rounded-xl border border-gray-200 bg-white p-4">
-		<h2 class="mb-3 text-sm font-semibold text-gray-700">Top persons</h2>
-		{{template "entityList" .TopPersons}}
+		<h2 class="mb-1 text-sm font-semibold text-gray-700">Top persons</h2>
+		{{template "entityRankList" .TopPersons}}
 	</div>
 	<div class="rounded-xl border border-gray-200 bg-white p-4">
-		<h2 class="mb-3 text-sm font-semibold text-gray-700">Top orgs</h2>
-		{{template "entityList" .TopOrgs}}
+		<h2 class="mb-1 text-sm font-semibold text-gray-700">Top orgs</h2>
+		{{template "entityRankList" .TopOrgs}}
 	</div>
 	<div class="rounded-xl border border-gray-200 bg-white p-4">
-		<h2 class="mb-3 text-sm font-semibold text-gray-700">Top events</h2>
-		{{template "entityList" .TopEvents}}
+		<h2 class="mb-1 text-sm font-semibold text-gray-700">Top events</h2>
+		{{template "entityRankList" .TopEvents}}
 	</div>
 </section>
 
@@ -143,10 +143,47 @@ var tmpl = template.Must(template.New("ui").Parse(`
 <script>
 (function() {
 	const chartData = {{.ChartDataJSON}};
+	const typeColors = { PERSON: '#3b82f6', ORG: '#a855f7', EVENT: '#f59e0b' };
+	const typeLabels = { PERSON: 'Person', ORG: 'Org', EVENT: 'Event' };
 	new Chart(document.getElementById('bar-chart'), {
 		type: 'bar',
-		data: { labels: chartData.labels, datasets: [{ label: 'Mentions', data: chartData.mentionCounts, backgroundColor: '#3b82f6', borderRadius: 4 }] },
-		options: { maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } } }
+		data: {
+			labels: chartData.labels,
+			datasets: [{
+				label: 'Mentions',
+				data: chartData.mentionCounts,
+				backgroundColor: chartData.types.map((t) => typeColors[t] || '#9ca3af'),
+				borderRadius: 4
+			}]
+		},
+		options: {
+			maintainAspectRatio: false,
+			scales: {
+				x: {
+					ticks: {
+						autoSkip: false, maxRotation: 60, minRotation: 60,
+						callback: function (value) {
+							const label = this.getLabelForValue(value);
+							return label.length > 16 ? label.slice(0, 16) + '…' : label;
+						}
+					}
+				},
+				y: { beginAtZero: true, ticks: { precision: 0 } }
+			},
+			plugins: {
+				legend: {
+					display: true,
+					labels: {
+						boxWidth: 10,
+						boxHeight: 10,
+						generateLabels: () => Object.keys(typeColors).map((t) => ({
+							text: typeLabels[t], fillStyle: typeColors[t], strokeStyle: typeColors[t]
+						}))
+					}
+				},
+				tooltip: { callbacks: { label: (ctx) => ctx.parsed.y + ' mentions' } }
+			}
+		}
 	});
 	new Chart(document.getElementById('trend-chart'), {
 		type: 'line',
@@ -177,28 +214,26 @@ var tmpl = template.Must(template.New("ui").Parse(`
 </script>
 {{end}}
 
-{{define "entityList"}}
-<div class="overflow-x-auto">
-<table class="w-full text-sm">
-	<thead>
-		<tr class="border-b border-gray-200 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
-			<th class="py-2 pr-4">Entity</th><th class="py-2 pr-4">Type</th><th class="py-2 pr-4 text-right">Mentions</th><th class="py-2 text-right">Sentiment</th>
-		</tr>
-	</thead>
-	<tbody class="divide-y divide-gray-100">
+{{define "entityRankList"}}
+{{if .}}
+<ol class="divide-y divide-gray-100">
 	{{range .}}
-		<tr class="hover:bg-gray-50">
-			<td class="py-2 pr-4"><a href="/entities/{{.ID}}" class="font-medium text-gray-900 hover:text-blue-600">{{.Name}}</a></td>
-			<td class="py-2 pr-4">{{template "typeBadge" .Type}}</td>
-			<td class="py-2 pr-4 text-right tabular-nums">{{.MentionCount}}</td>
-			<td class="py-2 text-right tabular-nums {{if gt .SentimentScore 0.0}}text-green-600{{else if lt .SentimentScore 0.0}}text-red-600{{else}}text-gray-500{{end}}">{{printf "%.2f" .SentimentScore}}</td>
-		</tr>
-	{{else}}
-		<tr><td colspan="4" class="py-4 text-center text-gray-500">No trending entities yet.</td></tr>
+	<li class="flex items-center gap-3 py-2.5">
+		<span class="w-4 shrink-0 text-right text-xs font-semibold tabular-nums text-gray-300">{{.Rank}}</span>
+		<div class="min-w-0 flex-1">
+			<a href="/entities/{{.ID}}" class="block truncate text-sm font-medium text-gray-900 hover:text-blue-600">{{.Name}}</a>
+			<div class="mt-1 h-1 w-full rounded-full bg-gray-100">
+				<div class="h-1 rounded-full bg-blue-500" style="width: {{.BarPercent}}%"></div>
+			</div>
+		</div>
+		<span class="shrink-0 text-xs font-medium tabular-nums text-gray-500">{{.MentionCount}}</span>
+		<span class="inline-block shrink-0 rounded-full px-1.5 py-0.5 text-xs font-medium tabular-nums {{if gt .SentimentScore 0.0}}bg-green-50 text-green-700{{else if lt .SentimentScore 0.0}}bg-red-50 text-red-700{{else}}bg-gray-100 text-gray-600{{end}}">{{printf "%.2f" .SentimentScore}}</span>
+	</li>
 	{{end}}
-	</tbody>
-</table>
-</div>
+</ol>
+{{else}}
+<p class="py-4 text-center text-sm text-gray-500">No trending entities yet.</p>
+{{end}}
 {{end}}
 
 {{define "entitySearchResults"}}
@@ -451,12 +486,45 @@ func toSourceBreakdownRows(rows []coreclient.SourceBreakdown) []sourceBreakdownR
 	return out
 }
 
+// rankedEntityRow is the UI-side view of coreclient.EntityRollup for the
+// home page's per-type top-10 lists (issue #32/#33 revamp): Rank (1-based)
+// and BarPercent (0-100, relative to the list's own top entity) replace
+// the old table's redundant Type column — every row in a given list is
+// already the same type, so showing it added nothing.
+type rankedEntityRow struct {
+	ID             int64
+	Rank           int
+	Name           string
+	MentionCount   int
+	SentimentScore float64
+	BarPercent     int
+}
+
+func toRankedEntityRows(entities []coreclient.EntityRollup) []rankedEntityRow {
+	max := 0
+	for _, e := range entities {
+		if e.MentionCount > max {
+			max = e.MentionCount
+		}
+	}
+	out := make([]rankedEntityRow, len(entities))
+	for i, e := range entities {
+		pct := 0
+		if max > 0 {
+			pct = e.MentionCount * 100 / max
+		}
+		out[i] = rankedEntityRow{ID: e.ID, Rank: i + 1, Name: e.Name, MentionCount: e.MentionCount, SentimentScore: e.SentimentScore, BarPercent: pct}
+	}
+	return out
+}
+
 // trendingChartPayload is marshaled to JSON and injected verbatim into the
 // trending page's <script> block; json.Marshal HTML-escapes by default,
 // so this is safe even though it's built from entity names we don't
 // control.
 type trendingChartPayload struct {
 	Labels            []string  `json:"labels"`
+	Types             []string  `json:"types"`
 	MentionCounts     []int     `json:"mentionCounts"`
 	TrendLabels       []string  `json:"trendLabels"`
 	TrendMentions     []int     `json:"trendMentions"`
@@ -468,9 +536,9 @@ type trendingChartPayload struct {
 
 type trendingData struct {
 	Windows        []windowTab
-	TopPersons     []coreclient.EntityRollup
-	TopOrgs        []coreclient.EntityRollup
-	TopEvents      []coreclient.EntityRollup
+	TopPersons     []rankedEntityRow
+	TopOrgs        []rankedEntityRow
+	TopEvents      []rankedEntityRow
 	Sentiment      sentimentSummary
 	RecentArticles []recentArticle
 	ChartDataJSON  template.JS
@@ -493,9 +561,11 @@ func buildTrendingData(window string, topPersons, topOrgs, topEvents []coreclien
 	}
 
 	labels := make([]string, len(merged))
+	types := make([]string, len(merged))
 	counts := make([]int, len(merged))
 	for i, e := range merged {
 		labels[i] = e.Name
+		types[i] = e.Type
 		counts[i] = e.MentionCount
 	}
 
@@ -509,7 +579,7 @@ func buildTrendingData(window string, topPersons, topOrgs, topEvents []coreclien
 	}
 
 	payload := trendingChartPayload{
-		Labels: labels, MentionCounts: counts,
+		Labels: labels, Types: types, MentionCounts: counts,
 		TrendLabels: trendLabels, TrendMentions: trendMentions, TrendSentiment: trendSentiment,
 		SentimentPositive: breakdown.Positive, SentimentNeutral: breakdown.Neutral, SentimentNegative: breakdown.Negative,
 	}
@@ -530,9 +600,9 @@ func buildTrendingData(window string, topPersons, topOrgs, topEvents []coreclien
 
 	return trendingData{
 		Windows:    tabsFor(window),
-		TopPersons: topPersons,
-		TopOrgs:    topOrgs,
-		TopEvents:  topEvents,
+		TopPersons: toRankedEntityRows(topPersons),
+		TopOrgs:    toRankedEntityRows(topOrgs),
+		TopEvents:  toRankedEntityRows(topEvents),
 		Sentiment: sentimentSummary{
 			Positive: breakdown.Positive, Neutral: breakdown.Neutral, Negative: breakdown.Negative, Average: average,
 		},
