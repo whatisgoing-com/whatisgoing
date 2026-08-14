@@ -34,5 +34,6 @@ RUN CGO_ENABLED=0 go build -o /out/ui ./cmd/ui
 FROM gcr.io/distroless/static-debian12
 COPY --from=build /out/ui /ui
 COPY --from=tailwind /out/style.css /static/style.css
+COPY cmd/ui/static/favicon.svg /static/favicon.svg
 EXPOSE 8081
 ENTRYPOINT ["/ui"]

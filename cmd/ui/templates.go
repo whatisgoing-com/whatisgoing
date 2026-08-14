@@ -16,6 +16,7 @@ const layoutHeader = `<!doctype html>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>whatisgoing.com</title>
+	<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 	<link rel="stylesheet" href="/static/style.css">
 	<script src="https://unpkg.com/htmx.org@2.0.3"></script>
 	<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
@@ -23,7 +24,7 @@ const layoutHeader = `<!doctype html>
 <body class="bg-gray-50 text-gray-900 antialiased">
 	<header class="border-b border-gray-200 bg-white">
 		<div class="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
-			<a href="/" class="text-lg font-semibold tracking-tight">whatisgoing<span class="text-blue-600">.com</span></a>
+			<a href="/" class="font-brand text-xl font-extrabold tracking-tight text-[#1C2430]">what is<span class="rounded-[3px] bg-[#1C2430] px-1 text-[#F6F3EC]">going</span><span class="font-normal text-gray-400">.com</span></a>
 			<nav class="flex gap-1">
 				<a href="/" class="rounded-md px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900">Trending</a>
 				<a href="/search" class="rounded-md px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900">Search</a>
