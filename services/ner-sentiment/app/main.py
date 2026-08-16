@@ -26,7 +26,7 @@ def extract(req: ExtractRequest) -> ExtractResponse:
     if not text:
         raise HTTPException(status_code=400, detail="no extractable text content")
 
-    entities = analyze_entities(text)
+    entities = analyze_entities(text, title)
 
     processing_ms = (time.perf_counter() - started) * 1000
     logger.info(

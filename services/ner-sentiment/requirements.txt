@@ -7,3 +7,4 @@ gliner==0.2.28
 transformers==5.13.1
 tokenizers==0.22.2
 huggingface_hub==1.27.0
+llama-cpp-python==0.3.34

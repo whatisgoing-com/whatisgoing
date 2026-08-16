@@ -5,9 +5,10 @@
 # natively means editing app/*.py takes effect on the next request with
 # --reload, no image rebuild.
 #
-# First run downloads ~2-3GB of model weights (GLiNER, spaCy, the
-# sentiment model) — needs internet access once; cached under ~/.cache
-# afterward, so later runs are fast and offline-capable.
+# First run downloads ~4-5GB of model weights (GLiNER, spaCy, the
+# sentiment model, and the topic-generation model) — needs internet access
+# once; cached under ~/.cache afterward, so later runs are fast and
+# offline-capable.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -45,6 +46,7 @@ echo "==> downloading model weights (no-op if already cached)"
 python -m spacy download en_core_web_sm
 python -c "from transformers import pipeline; pipeline('sentiment-analysis', model='distilbert-base-uncased-finetuned-sst-2-english', device=-1)"
 python -c "from gliner import GLiNER; GLiNER.from_pretrained('urchade/gliner_medium-v2.1')"
+python -c "from huggingface_hub import hf_hub_download; hf_hub_download(repo_id='Qwen/Qwen2.5-1.5B-Instruct-GGUF', filename='qwen2.5-1.5b-instruct-q8_0.gguf')"
 
 # transformers 5.x's tokenizer loader makes a live Hub call (listing repo
 # files for a chat template) on every load regardless of what's already
