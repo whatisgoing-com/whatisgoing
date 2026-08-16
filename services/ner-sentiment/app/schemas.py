@@ -2,7 +2,7 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-EntityType = Literal["PERSON", "ORG", "EVENT"]
+EntityType = Literal["PERSON", "ORG", "TOPIC"]
 
 
 class ExtractRequest(BaseModel):

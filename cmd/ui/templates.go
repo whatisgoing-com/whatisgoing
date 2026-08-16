@@ -45,7 +45,7 @@ var tmpl = template.Must(template.New("ui").Parse(`
 {{define "typeBadge"}}
 {{if eq . "PERSON"}}<span class="inline-block rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">PERSON</span>
 {{else if eq . "ORG"}}<span class="inline-block rounded-full bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700">ORG</span>
-{{else if eq . "EVENT"}}<span class="inline-block rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">TOPIC</span>
+{{else if eq . "TOPIC"}}<span class="inline-block rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">TOPIC</span>
 {{else}}<span class="inline-block rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">{{.}}</span>
 {{end}}
 {{end}}
@@ -135,7 +135,7 @@ var tmpl = template.Must(template.New("ui").Parse(`
 	</div>
 	<div class="rounded-xl border border-gray-200 bg-white p-4">
 		<h2 class="mb-1 text-sm font-semibold text-gray-700">Top topics</h2>
-		{{template "entityRankList" .TopEvents}}
+		{{template "entityRankList" .TopTopics}}
 	</div>
 </section>
 
@@ -502,13 +502,13 @@ type trendingData struct {
 	EntityCount      int
 	TopPersons       []rankedEntityRow
 	TopOrgs          []rankedEntityRow
-	TopEvents        []rankedEntityRow
+	TopTopics        []rankedEntityRow
 	Sentiment        sentimentSummary
 	RecentArticles   []recentArticle
 	ChartDataJSON    template.JS
 }
 
-func buildTrendingData(window string, topPersons, topOrgs, topEvents []coreclient.EntityRollup, overall []coreclient.OverallTrendPoint, breakdown coreclient.SentimentBreakdown, windowStats coreclient.WindowStats, recentArticles []coreclient.RecentArticle) trendingData {
+func buildTrendingData(window string, topPersons, topOrgs, topTopics []coreclient.EntityRollup, overall []coreclient.OverallTrendPoint, breakdown coreclient.SentimentBreakdown, windowStats coreclient.WindowStats, recentArticles []coreclient.RecentArticle) trendingData {
 	trendLabels := make([]string, len(overall))
 	trendMentions := make([]int, len(overall))
 	trendSentiment := make([]float64, len(overall))
@@ -544,7 +544,7 @@ func buildTrendingData(window string, topPersons, topOrgs, topEvents []coreclien
 		EntityCount:      windowStats.EntityCount,
 		TopPersons:       toRankedEntityRows(topPersons),
 		TopOrgs:          toRankedEntityRows(topOrgs),
-		TopEvents:        toRankedEntityRows(topEvents),
+		TopTopics:        toRankedEntityRows(topTopics),
 		Sentiment: sentimentSummary{
 			Positive: breakdown.Positive, Negative: breakdown.Negative, Average: average,
 		},

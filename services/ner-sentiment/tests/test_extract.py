@@ -37,7 +37,7 @@ def test_extract_returns_typed_offset_accurate_entities_with_sentiment():
     assert entities, "expected at least one entity"
 
     for ent in entities:
-        assert ent["type"] in {"PERSON", "ORG", "EVENT"}
+        assert ent["type"] in {"PERSON", "ORG", "TOPIC"}
         # offsets must point back into the returned text
         assert body["text"][ent["start"] : ent["end"]] == ent["text"]
         assert -1.0 <= ent["sentiment_score"] <= 1.0
@@ -50,6 +50,21 @@ def test_extract_returns_typed_offset_accurate_entities_with_sentiment():
     un = next((e for e in entities if "United Nations" in e["text"]), None)
     assert un is not None
     assert un["sentiment_score"] < 0
+
+    topics = [e for e in entities if e["type"] == "TOPIC"]
+    assert topics, "expected at least one topic per article"
+
+
+def test_extract_guarantees_at_least_one_topic_for_short_text():
+    fragment = "<p>The dog slept.</p>"
+    resp = client.post("/extract", json={"html": fragment})
+    assert resp.status_code == 200
+
+    body = resp.json()
+    topics = [e for e in body["entities"] if e["type"] == "TOPIC"]
+    assert topics, "expected at least one topic even for text with no strong keyphrases"
+    for topic in topics:
+        assert body["text"][topic["start"] : topic["end"]] == topic["text"]
 
 
 def test_extract_falls_back_for_html_fragment_without_boilerplate():

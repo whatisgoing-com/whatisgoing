@@ -102,7 +102,7 @@ func NewClient(baseURL string, httpClient *http.Client) *Client {
 
 // Trending returns the most-mentioned entities for a window ("day",
 // "week", "month", "year"), optionally scoped to one entity type
-// (PERSON/ORG/EVENT) — pass "" for the unscoped, mixed-type ranking.
+// (PERSON/ORG/TOPIC) — pass "" for the unscoped, mixed-type ranking.
 func (c *Client) Trending(ctx context.Context, window, entityType string, limit int) ([]EntityRollup, error) {
 	q := url.Values{"window": {window}, "limit": {strconv.Itoa(limit)}}
 	if entityType != "" {
