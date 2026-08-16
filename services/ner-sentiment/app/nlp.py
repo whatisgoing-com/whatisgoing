@@ -7,6 +7,9 @@ from transformers import pipeline
 from .schemas import EntityMention
 
 _ENTITY_WHITELIST = {"PERSON", "ORG"}
+# Not emitted as mentions, but excluded from topic candidates — a bare
+# country/city/region name is a place, not a topic (issue #41).
+_TOPIC_EXCLUDED_LABELS = {"GPE", "LOC"}
 
 _nlp = spacy.load("en_core_web_sm")
 _sentiment = pipeline(
@@ -75,10 +78,12 @@ def _trim_chunk(chunk: Span) -> Optional[Span]:
     if start_i >= end_i:
         return None
     trimmed_tokens = tokens[start_i:end_i]
-    # A single common noun ("court", "company", "person") is too generic to
-    # read as a real topic — require either a multi-word phrase or a proper
-    # noun, both of which carry actual specificity.
-    if len(trimmed_tokens) == 1 and trimmed_tokens[0].pos_ != "PROPN":
+    # A single word — common noun or proper noun alike ("court", "company",
+    # "Bangladesh", "Russia") — is too generic, or is just a bare name/place,
+    # to read as a real topic. A topic is a theme/subject, which needs at
+    # least a modifier + head noun ("large language models", "ongoing
+    # conflict") to say anything.
+    if len(trimmed_tokens) < 2:
         return None
     return chunk.doc[trimmed_tokens[0].i : trimmed_tokens[-1].i + 1]
 
@@ -87,20 +92,26 @@ def _overlaps_any(start: int, end: int, spans: List[Tuple[int, int]]) -> bool:
     return any(start < seen_end and seen_start < end for seen_start, seen_end in spans)
 
 
-def _extract_topics(doc: Doc, sentence_scores: Dict[Tuple[int, int], float], entity_spans: List[Tuple[int, int]]) -> List[EntityMention]:
+def _extract_topics(
+    doc: Doc,
+    sentence_scores: Dict[Tuple[int, int], float],
+    entity_spans: List[Tuple[int, int]],
+    excluded_spans: List[Tuple[int, int]],
+) -> List[EntityMention]:
     """Ranks the article's noun chunks by how often they recur (a phrase
     mentioned repeatedly is what the article is actually about), skipping
-    anything that overlaps a PERSON/ORG mention already found — a topic
-    restating a named entity isn't a topic. Every article gets at least
-    one TOPIC mention: if nothing clears the bar (e.g. unusually short
-    text), the longest noun chunk is used as a fallback."""
+    anything that overlaps a PERSON/ORG mention already found, or a
+    GPE/LOC (country/city/region) span — a topic restating a named entity
+    or a bare place name isn't a topic. Every article gets at least one
+    TOPIC mention: if nothing clears the bar (e.g. unusually short text),
+    the longest noun chunk is used as a fallback."""
     counts: Dict[str, int] = {}
     first_span: Dict[str, Span] = {}
     for chunk in doc.noun_chunks:
         trimmed = _trim_chunk(chunk)
         if trimmed is None or len(trimmed.text) < _TOPIC_MIN_CHARS:
             continue
-        if _overlaps_any(trimmed.start_char, trimmed.end_char, entity_spans):
+        if _overlaps_any(trimmed.start_char, trimmed.end_char, excluded_spans):
             continue
 
         key = trimmed.text.lower()
@@ -137,8 +148,12 @@ def analyze_entities(text: str) -> List[EntityMention]:
     sentence_scores: Dict[Tuple[int, int], float] = {}
     mentions: List[EntityMention] = []
     entity_spans: List[Tuple[int, int]] = []
+    topic_excluded_spans: List[Tuple[int, int]] = []
 
     for ent in doc.ents:
+        if ent.label_ in _TOPIC_EXCLUDED_LABELS:
+            topic_excluded_spans.append((ent.start_char, ent.end_char))
+
         if ent.label_ not in _ENTITY_WHITELIST:
             continue
 
@@ -159,6 +174,6 @@ def analyze_entities(text: str) -> List[EntityMention]:
             )
         )
 
-    mentions.extend(_extract_topics(doc, sentence_scores, entity_spans))
+    mentions.extend(_extract_topics(doc, sentence_scores, entity_spans, entity_spans + topic_excluded_spans))
 
     return mentions
