@@ -19,8 +19,8 @@ const layoutHeader = `<!doctype html>
 	<title>whatisgoing.com</title>
 	<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 	<link rel="stylesheet" href="/static/style.css">
-	<script src="https://unpkg.com/htmx.org@2.0.3"></script>
-	<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+	<script src="/static/htmx.min.js"></script>
+	<script src="/static/chart.min.js"></script>
 </head>
 <body class="bg-gray-50 text-gray-900 antialiased">
 	<header class="border-b border-gray-200 bg-white">
