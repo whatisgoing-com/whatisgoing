@@ -135,7 +135,7 @@ var tmpl = template.Must(template.New("ui").Funcs(template.FuncMap{
 	</div>
 </section>
 
-<section class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+<section class="space-y-4">
 	<div class="rounded-xl border border-gray-200 bg-white p-4">
 		<h2 class="mb-1 text-sm font-semibold text-gray-700">Top persons</h2>
 		{{template "entityRankList" .TopPersons}}
@@ -191,11 +191,11 @@ var tmpl = template.Must(template.New("ui").Funcs(template.FuncMap{
 {{if .}}
 <ol class="divide-y divide-gray-100">
 	{{range .}}
-	<li class="flex items-center gap-3 py-2.5">
-		<span class="w-4 shrink-0 text-right text-xs font-semibold tabular-nums text-gray-300">{{.Rank}}</span>
+	<li class="flex items-start gap-3 py-2.5">
+		<span class="w-4 shrink-0 pt-0.5 text-right text-xs font-semibold tabular-nums text-gray-300">{{.Rank}}</span>
 		<div class="min-w-0 flex-1">
-			<a href="/entities/{{.ID}}" class="block truncate text-sm font-medium text-gray-900 hover:text-blue-600">{{.Name}}</a>
-			<div class="mt-1 h-1 w-full rounded-full bg-gray-100">
+			<a href="/entities/{{.ID}}" class="block text-sm font-medium text-gray-900 hover:text-blue-600">{{.Name}}</a>
+			<div class="mt-1 h-1 w-full max-w-xs rounded-full bg-gray-100">
 				<div class="h-1 rounded-full bg-blue-500" style="width: {{.BarPercent}}%"></div>
 			</div>
 		</div>

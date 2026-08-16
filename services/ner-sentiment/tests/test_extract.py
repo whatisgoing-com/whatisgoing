@@ -67,6 +67,22 @@ def test_extract_guarantees_at_least_one_topic_for_short_text():
         assert body["text"][topic["start"] : topic["end"]] == topic["text"]
 
 
+def test_extract_excludes_bare_country_and_single_word_topics():
+    fragment = (
+        "<p>Bangladesh thrashed Australia in one of Test cricket's greatest "
+        "upsets, as the underdogs pulled off a historic quadruple in front "
+        "of a stunned crowd.</p>"
+    )
+    resp = client.post("/extract", json={"html": fragment})
+    assert resp.status_code == 200
+
+    topics = [e["text"] for e in resp.json()["entities"] if e["type"] == "TOPIC"]
+    assert topics, "expected at least one topic"
+    for topic in topics:
+        assert topic.lower() not in {"bangladesh", "australia"}, f"bare country name leaked through: {topic!r}"
+        assert " " in topic, f"single-word topic leaked through: {topic!r}"
+
+
 def test_extract_falls_back_for_html_fragment_without_boilerplate():
     fragment = "<p>Apple released a new product and the market reacted well.</p>"
     resp = client.post("/extract", json={"html": fragment})
