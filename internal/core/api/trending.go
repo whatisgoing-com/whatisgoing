@@ -8,11 +8,11 @@ import (
 )
 
 // validEntityTypes matches the Postgres entity_type enum exactly.
-var validEntityTypes = map[string]bool{"PERSON": true, "ORG": true, "EVENT": true}
+var validEntityTypes = map[string]bool{"PERSON": true, "ORG": true, "TOPIC": true}
 
 // handleTrending serves the "hot topics/persons/orgs" feature: the
 // most-mentioned entities in the current window (today/this week/this
-// month/this year). An optional "type" query param (PERSON/ORG/EVENT)
+// month/this year). An optional "type" query param (PERSON/ORG/TOPIC)
 // scopes the ranking to one entity type — the home page's per-type
 // top-10 lists (issue #32); omitted, it ranks across all types as before.
 func (h *handlers) handleTrending(w http.ResponseWriter, r *http.Request) {
@@ -36,7 +36,7 @@ func (h *handlers) handleTrending(w http.ResponseWriter, r *http.Request) {
 	} else if validEntityTypes[entityType] {
 		results, err = h.rollups.TopEntitiesByType(r.Context(), window, windowStart, entityType, parseLimit(r))
 	} else {
-		writeError(w, http.StatusBadRequest, "invalid type: must be one of PERSON, ORG, EVENT")
+		writeError(w, http.StatusBadRequest, "invalid type: must be one of PERSON, ORG, TOPIC")
 		return
 	}
 	if err != nil {

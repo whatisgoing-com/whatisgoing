@@ -98,7 +98,7 @@ func (s *RollupStore) TopEntities(ctx context.Context, window rollup.Window, win
 }
 
 // TopEntitiesByType returns the most-mentioned entities of a single type
-// (PERSON/ORG/EVENT) for a window/window start, ranked by mention_count
+// (PERSON/ORG/TOPIC) for a window/window start, ranked by mention_count
 // descending — the home page's per-type top-10 lists (issue #32).
 func (s *RollupStore) TopEntitiesByType(ctx context.Context, window rollup.Window, windowStart time.Time, entityType string, limit int) ([]rollup.EntityRollup, error) {
 	rows, err := s.pool.Query(ctx, `

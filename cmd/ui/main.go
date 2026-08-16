@@ -96,9 +96,9 @@ func (h *handlers) handleTrending(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to load trending entities", http.StatusBadGateway)
 		return
 	}
-	topEvents, err := h.core.Trending(r.Context(), window, "EVENT", defaultTopByTypeLimit)
+	topTopics, err := h.core.Trending(r.Context(), window, "TOPIC", defaultTopByTypeLimit)
 	if err != nil {
-		log.Printf("ui: trending (events): %v", err)
+		log.Printf("ui: trending (topics): %v", err)
 		http.Error(w, "failed to load trending entities", http.StatusBadGateway)
 		return
 	}
@@ -131,7 +131,7 @@ func (h *handlers) handleTrending(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := buildTrendingData(window, topPersons, topOrgs, topEvents, overall, breakdown, windowStats, recentArticles)
+	data := buildTrendingData(window, topPersons, topOrgs, topTopics, overall, breakdown, windowStats, recentArticles)
 
 	if r.Header.Get("HX-Request") == "true" {
 		renderPartial(w, "trendingPanel", data)
