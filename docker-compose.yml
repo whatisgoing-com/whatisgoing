@@ -50,15 +50,17 @@ services:
     # requiring a manual restart.
     restart: on-failure
 
-  ui:
+  # React SPA (issue #56) — a plain client-rendered app, calling core's
+  # JSON API directly from the browser rather than through a server-side
+  # BFF. VITE_CORE_API_URL is baked in at build time (see web/Dockerfile);
+  # it defaults to core's host-published port, which is what the browser
+  # can actually reach, not the docker-network-internal "core" hostname.
+  web:
     build:
       context: .
-      dockerfile: cmd/ui/Dockerfile
-    environment:
-      UI_PORT: "8081"
-      CORE_API_URL: http://core:8080
+      dockerfile: web/Dockerfile
     ports:
-      - "8081:8081"
+      - "8081:80"
     depends_on:
       - core
 

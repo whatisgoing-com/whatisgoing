@@ -42,7 +42,23 @@ func NewRouter(rollups RollupReader, searcher search.Searcher) http.Handler {
 	mux.HandleFunc("GET /api/entities/{id}/sources", h.handleSourceBreakdown)
 	mux.HandleFunc("GET /api/entities/{id}/related", h.handleRelatedEntities)
 	mux.HandleFunc("GET /api/articles/recent", h.handleRecentArticles)
-	return mux
+	return withCORS(mux)
+}
+
+// withCORS allows the browser-based SPA (a different origin from core —
+// see web/) to call this API directly. Every route here is a read-only GET
+// with no cookies/credentials involved, so a wildcard origin is safe: there's
+// no session to leak cross-site.
+func withCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 type handlers struct {
