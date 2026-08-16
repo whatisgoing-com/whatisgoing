@@ -6,6 +6,8 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"math"
+	"strings"
 	"time"
 
 	"github.com/whatisgoing-com/whatisgoing/internal/ui/coreclient"
@@ -242,18 +244,26 @@ var tmpl = template.Must(template.New("ui").Funcs(template.FuncMap{
 {{end}}
 {{end}}
 
-{{define "relatedEntities"}}
-{{if .}}
-<ul class="divide-y divide-gray-100">
-	{{range .}}
-	<li class="flex items-center justify-between py-2 text-sm">
-		<a href="/entities/{{.ID}}" class="font-medium text-gray-900 hover:text-blue-600">{{.Name}}</a>
-		<span class="flex items-center gap-2">{{template "typeBadge" .Type}}<span class="tabular-nums text-gray-500">{{.CooccurrenceCount}}</span></span>
-	</li>
+{{define "relationGraph"}}
+{{if .Nodes}}
+<svg viewBox="0 0 {{.Size}} {{.Size}}" class="mx-auto block w-full max-w-xl overflow-visible">
+	{{$g := .}}
+	{{range .Nodes}}
+	<line x1="{{$g.CX}}" y1="{{$g.CY}}" x2="{{.X}}" y2="{{.Y}}" stroke="#e5e7eb" stroke-width="{{.EdgeWidth}}">
+		<title>{{$g.CenterName}} &harr; {{.Name}}: {{.Weight}} shared article{{if ne .Weight 1}}s{{end}}</title>
+	</line>
 	{{end}}
-</ul>
+	{{range .Nodes}}
+	<a href="/entities/{{.ID}}">
+		<circle cx="{{.X}}" cy="{{.Y}}" r="{{.Radius}}" class="{{.ColorClass}}" stroke="white" stroke-width="1.5"><title>{{.Name}} ({{.Type}})</title></circle>
+		<text x="{{.LabelX}}" y="{{.LabelY}}" text-anchor="{{.Anchor}}" class="fill-gray-700 text-[10px]">{{.Label}}</text>
+	</a>
+	{{end}}
+	<circle cx="{{.CX}}" cy="{{.CY}}" r="18" class="fill-[#1C2430]" stroke="white" stroke-width="2"><title>{{.CenterName}} (this entity)</title></circle>
+	<text x="{{.CX}}" y="{{.CY}}" text-anchor="middle" dominant-baseline="central" class="fill-white text-[11px] font-semibold">{{.CenterInitial}}</text>
+</svg>
 {{else}}
-<p class="text-sm text-gray-500">No related entities yet.</p>
+<p class="py-4 text-center text-sm text-gray-500">No related entities yet.</p>
 {{end}}
 {{end}}
 
@@ -278,7 +288,7 @@ var tmpl = template.Must(template.New("ui").Funcs(template.FuncMap{
 	</div>
 </section>
 
-<section class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+<section class="grid grid-cols-1 gap-4 lg:grid-cols-2">
 	<div class="rounded-xl border border-gray-200 bg-white p-4">
 		<h2 class="mb-3 text-sm font-semibold text-gray-700">By source</h2>
 		{{template "sourceBreakdown" .SourceBreakdown}}
@@ -287,10 +297,14 @@ var tmpl = template.Must(template.New("ui").Funcs(template.FuncMap{
 		<h2 class="mb-1 text-sm font-semibold text-gray-700">Recent articles</h2>
 		{{template "recentArticles" .RecentArticles}}
 	</div>
-	<div class="rounded-xl border border-gray-200 bg-white p-4">
-		<h2 class="mb-3 text-sm font-semibold text-gray-700">Related entities</h2>
-		{{template "relatedEntities" .RelatedEntities}}
+</section>
+
+<section class="rounded-xl border border-gray-200 bg-white p-4">
+	<div class="mb-1 flex items-baseline justify-between">
+		<h2 class="text-sm font-semibold text-gray-700">Related entities</h2>
+		<span class="text-xs text-gray-400">Edge thickness = shared articles</span>
 	</div>
+	{{template "relationGraph" .RelationGraph}}
 </section>
 
 <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white p-4">
@@ -624,11 +638,134 @@ type entityChartPayload struct {
 	SentimentNegative int       `json:"sentimentNegative"`
 }
 
+// relationGraphNode is one related entity placed on the relationGraph's
+// radial layout: X/Y is its position, LabelX/LabelY/Anchor position its
+// name so the label reads outward from the node instead of overlapping
+// it, EdgeWidth is the line back to the center scaled by how often the
+// two entities co-occur (thicker = more shared articles).
+type relationGraphNode struct {
+	ID         int64
+	Name       string
+	Label      string
+	Type       string
+	Weight     int
+	X, Y       float64
+	LabelX     float64
+	LabelY     float64
+	Anchor     string
+	Radius     float64
+	EdgeWidth  float64
+	ColorClass string
+}
+
+// relationGraph lays out an entity's related entities on a circle around
+// it (issue #46) — a center node the viewer is already looking at, with
+// edges weighted by co-occurrence count and nodes colored by type,
+// reusing typeBadge's color scheme.
+type relationGraph struct {
+	Size          float64
+	CX, CY        float64
+	CenterName    string
+	CenterInitial string
+	Nodes         []relationGraphNode
+}
+
+// graphLabelMaxChars keeps node labels short enough that even the
+// longest topic phrases ("34 years of Left Front led Government in West
+// Bengal") stay legible next to their node instead of running into a
+// neighboring node or off the card's edge — SVG text doesn't wrap.
+const graphLabelMaxChars = 22
+
+func truncateLabel(name string) string {
+	if len(name) <= graphLabelMaxChars {
+		return name
+	}
+	return strings.TrimSpace(name[:graphLabelMaxChars-1]) + "…"
+}
+
+func nodeColorClass(entityType string) string {
+	switch entityType {
+	case "PERSON":
+		return "fill-blue-500"
+	case "ORG":
+		return "fill-purple-500"
+	case "TOPIC":
+		return "fill-amber-500"
+	default:
+		return "fill-gray-400"
+	}
+}
+
+func buildRelationGraph(centerName string, related []coreclient.RelatedEntity) relationGraph {
+	const (
+		size       = 420.0
+		center     = size / 2
+		ringRadius = 150.0
+		labelGap   = 14.0
+	)
+
+	maxWeight := 0
+	for _, r := range related {
+		if r.CooccurrenceCount > maxWeight {
+			maxWeight = r.CooccurrenceCount
+		}
+	}
+
+	n := len(related)
+	nodes := make([]relationGraphNode, n)
+	for i, r := range related {
+		angle := -math.Pi/2 + float64(i)*(2*math.Pi/float64(n))
+		cos, sin := math.Cos(angle), math.Sin(angle)
+		x := center + ringRadius*cos
+		y := center + ringRadius*sin
+
+		anchor := "middle"
+		labelX := x
+		switch {
+		case cos > 0.3:
+			anchor = "start"
+			labelX = x + labelGap
+		case cos < -0.3:
+			anchor = "end"
+			labelX = x - labelGap
+		}
+		labelY := y
+		switch {
+		case sin < -0.5:
+			labelY = y - labelGap
+		case sin > 0.5:
+			labelY = y + labelGap + 4
+		}
+
+		edgeWidth := 1.5
+		if maxWeight > 0 {
+			edgeWidth = 1.5 + 5*float64(r.CooccurrenceCount)/float64(maxWeight)
+		}
+
+		nodes[i] = relationGraphNode{
+			ID: r.ID, Name: r.Name, Label: truncateLabel(r.Name), Type: r.Type, Weight: r.CooccurrenceCount,
+			X: x, Y: y, LabelX: labelX, LabelY: labelY, Anchor: anchor,
+			Radius: 8, EdgeWidth: edgeWidth, ColorClass: nodeColorClass(r.Type),
+		}
+	}
+
+	initial := "?"
+	if centerName != "" {
+		initial = strings.ToUpper(centerName[:1])
+	}
+
+	return relationGraph{
+		Size: size, CX: center, CY: center,
+		CenterName: centerName, CenterInitial: initial,
+		Nodes: nodes,
+	}
+}
+
 type entityPageData struct {
 	Detail          coreclient.EntityDetail
 	SourceBreakdown []sourceBreakdownRow
 	RecentArticles  []recentArticle
-	RelatedEntities []coreclient.RelatedEntity
+	RelationGraph   relationGraph
 	ChartDataJSON   template.JS
 }
 
@@ -660,7 +797,7 @@ func buildEntityPageData(detail coreclient.EntityDetail, sourceBreakdown []corec
 		Detail:          detail,
 		SourceBreakdown: toSourceBreakdownRows(sourceBreakdown),
 		RecentArticles:  toRecentArticles(recentArticles),
-		RelatedEntities: relatedEntities,
+		RelationGraph:   buildRelationGraph(detail.Name, relatedEntities),
 		ChartDataJSON:   template.JS(b),
 	}
 }
