@@ -67,7 +67,23 @@ def test_extract_guarantees_at_least_one_topic_for_short_text():
         assert body["text"][topic["start"] : topic["end"]] == topic["text"]
 
 
-def test_extract_excludes_bare_country_and_single_word_topics():
+def test_extract_strips_leading_article_from_fallback_topic():
+    # Thin, single-sentence RSS content (common in this dataset) often has
+    # no confident GLiNER "topic" candidate, so the longest-noun-chunk
+    # fallback kicks in — and raw noun chunks keep a leading article
+    # ("The 55.6-metre concrete figure", "a second mass crossing") that
+    # reads oddly as a topic label.
+    fragment = "<p>The 55.6-metre concrete figure has stood on the hillside for decades.</p>"
+    resp = client.post("/extract", json={"html": fragment})
+    assert resp.status_code == 200
+
+    topics = [e["text"] for e in resp.json()["entities"] if e["type"] == "TOPIC"]
+    assert topics, "expected at least one topic"
+    for topic in topics:
+        assert not topic.lower().startswith(("the ", "a ", "an ")), f"leading article leaked through: {topic!r}"
+
+
+def test_extract_excludes_bare_country_names_from_topics():
     fragment = (
         "<p>Bangladesh thrashed Australia in one of Test cricket's greatest "
         "upsets, as the underdogs pulled off a historic quadruple in front "
@@ -80,7 +96,25 @@ def test_extract_excludes_bare_country_and_single_word_topics():
     assert topics, "expected at least one topic"
     for topic in topics:
         assert topic.lower() not in {"bangladesh", "australia"}, f"bare country name leaked through: {topic!r}"
-        assert " " in topic, f"single-word topic leaked through: {topic!r}"
+
+
+def test_extract_allows_single_word_topics_when_the_model_is_confident():
+    # GLiNER's "topic" label is semantic, unlike the old noun-chunk-length
+    # heuristic — a single confident word like "sports" is a real topic,
+    # not junk the way a bare noun-chunk word ("court", "company") was.
+    # This is a deliberate capability, not an oversight: don't reintroduce
+    # a blanket multi-word-only filter without checking this stays true.
+    fragment = (
+        "<p>Kalshi lets customers bet on the outcome of just about anything: "
+        "sports, elections, politics, entertainment, culture, tech, and "
+        "science are all covered by its prediction markets, which have "
+        "exploded in popularity this year.</p>"
+    )
+    resp = client.post("/extract", json={"html": fragment})
+    assert resp.status_code == 200
+
+    topics = [e["text"] for e in resp.json()["entities"] if e["type"] == "TOPIC"]
+    assert any(" " not in topic for topic in topics), f"expected at least one single-word topic, got {topics!r}"
 
 
 def test_extract_falls_back_for_html_fragment_without_boilerplate():

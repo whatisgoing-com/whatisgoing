@@ -20,11 +20,11 @@ services:
     volumes:
       - meili-data:/meili_data
 
-  ner-sentiment:
-    build: ./services/ner-sentiment
-    ports:
-      - "8000:8000"
-
+  # ner-sentiment (GLiNER + spaCy + the sentiment model) runs natively on
+  # the host instead of in Docker (issue #37) — see
+  # services/ner-sentiment/run.sh and its README. host.docker.internal is
+  # how core, still in Docker, reaches it; extra_hosts makes that resolve
+  # on Linux too (Docker Desktop provides it out of the box already).
   core:
     build:
       context: .
@@ -34,16 +34,17 @@ services:
       DATABASE_URL: postgres://whatisgoing:whatisgoing@postgres:5432/whatisgoing?sslmode=disable
       MEILISEARCH_URL: http://meilisearch:7700
       MEILISEARCH_KEY: dev-master-key
-      NER_SENTIMENT_URL: http://ner-sentiment:8000
+      NER_SENTIMENT_URL: http://host.docker.internal:8000
       SOURCES_CONFIG_PATH: /configs/sources.yaml
     volumes:
       - ./configs:/configs:ro
     ports:
       - "8080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - postgres
       - meilisearch
-      - ner-sentiment
     # On a fresh volume, postgres can still be running initdb when core
     # starts — depends_on only waits for the container to start, not for
     # postgres to actually accept connections. Self-heal rather than

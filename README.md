@@ -1,14 +1,14 @@
 # whatisgoing.com
 
-News analytics platform: scrapes news articles, extracts named entities (PERSON/ORG/EVENT), tracks mention frequency and sentiment over time, and surfaces trending topics/persons/orgs and entity "reputation" trends.
+News analytics platform: scrapes news articles, extracts named entities (PERSON/ORG/TOPIC), tracks mention frequency and sentiment over time, and surfaces trending topics/persons/orgs and entity "reputation" trends.
 
 ## Services
 
 - `cmd/core` — Go modular monolith: source scheduler, RSS/scraper fetcher, pipeline coordinator, internal JSON API.
-- `cmd/ui` — Go + htmx BFF, renders the public dashboard from `core`'s JSON API.
+- `web` — React SPA dashboard, calls `core`'s JSON API directly from the browser.
 - `cmd/rollup` — computes windowed entity-mention rollups (hot topics, reputation trend), then exits; run on a schedule rather than as a long-lived service.
 - `cmd/entity-resolver` — canonicalizes entity name variants ("Trump" / "Donald Trump" / "Donald J. Trump" → one entity) against Wikidata, then exits; same run-on-a-schedule shape as `cmd/rollup`.
-- `services/ner-sentiment` — Python (FastAPI): article extraction (`trafilatura`), NER (spaCy), sentence-level sentiment (DistilBERT).
+- `services/ner-sentiment` — Python (FastAPI): article extraction (`trafilatura`), NER (GLiNER), sentence-level sentiment (DistilBERT). Runs natively on the host in local dev, not in Docker — see [its README](./services/ner-sentiment/README.md).
 
 ## Ingestion sources
 
@@ -22,13 +22,13 @@ Postgres is the system of record (schema in `internal/core/store/postgres/migrat
 
 ## NER + sentiment
 
-`services/ner-sentiment` exposes a single `POST /extract` endpoint: `{"html": "...", "url": "..."}` (raw HTML or RSS item content; `url` is only ever used as an extraction hint, never fetched) returns extracted plain text plus a flat list of entity mentions, each with a whitelisted type (`PERSON`/`ORG`/`EVENT`), character offsets into the returned text, and a sentiment score in `[-1, 1]`.
+`services/ner-sentiment` exposes a single `POST /extract` endpoint: `{"html": "...", "url": "..."}` (raw HTML or RSS item content; `url` is only ever used as an extraction hint, never fetched) returns extracted plain text plus a flat list of entity mentions, each with a whitelisted type (`PERSON`/`ORG`/`TOPIC`), character offsets into the returned text, and a sentiment score in `[-1, 1]`.
 
 - **Extraction**: `trafilatura` for full article pages; falls back to a plain tag-strip for HTML fragments too short for trafilatura to find boilerplate to remove from (common for RSS item content).
-- **NER**: spaCy `en_core_web_sm`, filtered to `PERSON`/`ORG`/`EVENT`.
+- **Entities**: [GLiNER](https://huggingface.co/urchade/gliner_medium-v2.1), a zero-shot NER model — extracts `PERSON`/`ORG`/`TOPIC` directly via labeled prompts. Replaced spaCy's `en_core_web_sm` NER (issue #37) after real-data testing showed it mistagging obvious cases; spaCy stays in the pipeline for sentence segmentation and a GPE/LOC safety net on topic candidates, not entity recognition. Full writeup in [the service's README](./services/ner-sentiment/README.md#why-gliner-issue-37).
 - **Sentiment**: `distilbert-base-uncased-finetuned-sst-2-english`, computed per sentence (via spaCy sentence boundaries in the same text) and attributed to every entity mentioned in that sentence — not whole-article sentiment.
-- **CPU-only**: no GPU, no LLM; model weights are baked into the image at build time so the container needs no network access at runtime.
-- **Latency**: benchmarked locally at ~150-370ms/article end-to-end (cold first request ~370ms, steady-state ~150ms), comfortably inside the ~1,000 articles/day budget.
+- **CPU-only**: no GPU, no LLM; model weights are baked into the Docker image at build time (production) or pre-downloaded once by `run.sh` (local dev) so the service needs no network access at runtime.
+- **Runs natively in local dev, not in Docker** — GLiNER + torch make the image slow to rebuild on every change. See [services/ner-sentiment/README.md](./services/ner-sentiment/README.md) for `run.sh` usage; `docker-compose.yml`'s `core` service reaches it via `host.docker.internal:8000`.
 
 ## Batch aggregation (hot topics, reputation trend)
 
@@ -78,12 +78,20 @@ The header logo (issue #28) is the brand mark: "going" is a solid block that alw
 
 ## Local development
 
+`ner-sentiment` runs natively, not in docker-compose (see above) — start it first, in its own terminal:
+
+```sh
+services/ner-sentiment/run.sh
+```
+
+Then everything else:
+
 ```sh
 docker compose up --build
 ```
 
 - core: http://localhost:8080/healthz
-- ui: http://localhost:8081
+- web: http://localhost:8081
 - ner-sentiment: http://localhost:8000/healthz
 - Postgres: localhost:5432 (`whatisgoing`/`whatisgoing`)
 - Meilisearch: http://localhost:7700

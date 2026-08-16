@@ -12,9 +12,16 @@ RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/wh
     && pip install --no-cache-dir -r requirements.txt \
     && python -m spacy download en_core_web_sm
 
-# Pre-download sentiment model weights at build time so the container never
-# needs network access at runtime.
-RUN python -c "from transformers import pipeline; pipeline('sentiment-analysis', model='distilbert-base-uncased-finetuned-sst-2-english', device=-1)"
+# Pre-download sentiment and GLiNER model weights at build time so the
+# container never needs network access at runtime.
+RUN python -c "from transformers import pipeline; pipeline('sentiment-analysis', model='distilbert-base-uncased-finetuned-sst-2-english', device=-1)" \
+    && python -c "from gliner import GLiNER; GLiNER.from_pretrained('urchade/gliner_medium-v2.1')"
+
+# transformers 5.x's tokenizer loader makes a live Hub call (listing repo
+# files for a chat template) on every load regardless of what's already
+# cached, which would otherwise reintroduce a runtime network dependency
+# despite the predownload above.
+ENV HF_HUB_OFFLINE=1
 
 COPY app ./app
 EXPOSE 8000
