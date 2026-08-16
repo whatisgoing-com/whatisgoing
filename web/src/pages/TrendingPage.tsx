@@ -15,8 +15,9 @@ export function TrendingPage() {
   const window = useWindowParam()
   const { grain, limit } = trendGranularity(window)
 
+  // ORG isn't extracted right now (2026-08-16) — leaning on PERSON and
+  // TOPIC for now, ORG (and other types) to come back later.
   const persons = useTrending(window, 'PERSON')
-  const orgs = useTrending(window, 'ORG')
   const topics = useTrending(window, 'TOPIC')
   const overall = useOverallTrend(grain, limit)
   const sentiment = useSentimentBreakdown(window)
@@ -83,10 +84,6 @@ export function TrendingPage() {
           <div className="rounded-xl border border-gray-200 bg-white p-4">
             <h2 className="mb-1 text-sm font-semibold text-gray-700">Top persons</h2>
             <EntityRankList entities={persons.data ?? []} />
-          </div>
-          <div className="rounded-xl border border-gray-200 bg-white p-4">
-            <h2 className="mb-1 text-sm font-semibold text-gray-700">Top orgs</h2>
-            <EntityRankList entities={orgs.data ?? []} />
           </div>
           <div className="rounded-xl border border-gray-200 bg-white p-4">
             <h2 className="mb-1 text-sm font-semibold text-gray-700">Top topics</h2>

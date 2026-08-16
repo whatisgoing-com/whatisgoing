@@ -1,6 +1,6 @@
 # whatisgoing.com
 
-News analytics platform: scrapes news articles, extracts named entities (PERSON/ORG/TOPIC), tracks mention frequency and sentiment over time, and surfaces trending topics/persons/orgs and entity "reputation" trends.
+News analytics platform: scrapes news articles, extracts named entities (PERSON/TOPIC — ORG deliberately dropped for now, see below), tracks mention frequency and sentiment over time, and surfaces trending topics/persons and entity "reputation" trends.
 
 ## Services
 
@@ -8,7 +8,7 @@ News analytics platform: scrapes news articles, extracts named entities (PERSON/
 - `web` — React SPA dashboard, calls `core`'s JSON API directly from the browser.
 - `cmd/rollup` — computes windowed entity-mention rollups (hot topics, reputation trend), then exits; run on a schedule rather than as a long-lived service.
 - `cmd/entity-resolver` — canonicalizes entity name variants ("Trump" / "Donald Trump" / "Donald J. Trump" → one entity) against Wikidata, then exits; same run-on-a-schedule shape as `cmd/rollup`.
-- `services/ner-sentiment` — Python (FastAPI): article extraction (`trafilatura`), NER (GLiNER), sentence-level sentiment (DistilBERT). Runs natively on the host in local dev, not in Docker — see [its README](./services/ner-sentiment/README.md).
+- `services/ner-sentiment` — Python (FastAPI): article extraction (`trafilatura`), PERSON NER (GLiNER), generated TOPIC labels (a quantized small LLM via `llama.cpp`), sentence-level sentiment (DistilBERT). Runs natively on the host in local dev, not in Docker — see [its README](./services/ner-sentiment/README.md).
 
 ## Ingestion sources
 
@@ -22,13 +22,14 @@ Postgres is the system of record (schema in `internal/core/store/postgres/migrat
 
 ## NER + sentiment
 
-`services/ner-sentiment` exposes a single `POST /extract` endpoint: `{"html": "...", "url": "..."}` (raw HTML or RSS item content; `url` is only ever used as an extraction hint, never fetched) returns extracted plain text plus a flat list of entity mentions, each with a whitelisted type (`PERSON`/`ORG`/`TOPIC`), character offsets into the returned text, and a sentiment score in `[-1, 1]`.
+`services/ner-sentiment` exposes a single `POST /extract` endpoint: `{"html": "...", "url": "..."}` (raw HTML or RSS item content; `url` is only ever used as an extraction hint, never fetched) returns extracted plain text plus a flat list of entity mentions, each with a whitelisted type (`PERSON`/`TOPIC` — ORG deliberately dropped for now, see below), character offsets into the returned text (TOPIC's are always `0`, since it's generated, not extracted — see the service's own README), and a sentiment score in `[-1, 1]`.
 
 - **Extraction**: `trafilatura` for full article pages; falls back to a plain tag-strip for HTML fragments too short for trafilatura to find boilerplate to remove from (common for RSS item content).
-- **Entities**: [GLiNER](https://huggingface.co/urchade/gliner_medium-v2.1), a zero-shot NER model — extracts `PERSON`/`ORG`/`TOPIC` directly via labeled prompts. Replaced spaCy's `en_core_web_sm` NER (issue #37) after real-data testing showed it mistagging obvious cases; spaCy stays in the pipeline for sentence segmentation and a GPE/LOC safety net on topic candidates, not entity recognition. Full writeup in [the service's README](./services/ner-sentiment/README.md#why-gliner-issue-37).
-- **Sentiment**: `distilbert-base-uncased-finetuned-sst-2-english`, computed per sentence (via spaCy sentence boundaries in the same text) and attributed to every entity mentioned in that sentence — not whole-article sentiment.
-- **CPU-only**: no GPU, no LLM; model weights are baked into the Docker image at build time (production) or pre-downloaded once by `run.sh` (local dev) so the service needs no network access at runtime.
-- **Runs natively in local dev, not in Docker** — GLiNER + torch make the image slow to rebuild on every change. See [services/ner-sentiment/README.md](./services/ner-sentiment/README.md) for `run.sh` usage; `docker-compose.yml`'s `core` service reaches it via `host.docker.internal:8000`.
+- **PERSON**: [GLiNER](https://huggingface.co/urchade/gliner_medium-v2.1), a zero-shot NER model. Replaced spaCy's `en_core_web_sm` NER (issue #37) after real-data testing showed it mistagging obvious cases. ORG is deliberately not extracted right now (2026-08-16) — leaning on just PERSON and TOPIC, other types to come back later.
+- **TOPIC**: generated, not extracted — a quantized Qwen2.5-1.5B-Instruct (GGUF, run via `llama.cpp`, CPU-only) writes a short 2-3 word editor-style label from the title + lede. Two earlier attempts (a noun-chunk heuristic, then GLiNER's own "topic" label) were both extractive, which turned out to be the wrong shape for "what would an editor call this." Full writeup, including why plain PyTorch LLM inference was rejected first, in [the service's README](./services/ner-sentiment/README.md).
+- **Sentiment**: `distilbert-base-uncased-finetuned-sst-2-english`, computed per sentence (via spaCy sentence boundaries in the same text) and attributed to every entity mentioned in that sentence — whole-article sentiment for TOPIC, since it isn't scoped to one sentence.
+- **CPU-only**: no GPU; model weights are baked into the Docker image at build time (production) or pre-downloaded once by `run.sh` (local dev) so the service needs no network access at runtime.
+- **Runs natively in local dev, not in Docker** — the models involved make the image slow to rebuild on every change. See [services/ner-sentiment/README.md](./services/ner-sentiment/README.md) for `run.sh` usage; `docker-compose.yml`'s `core` service reaches it via `host.docker.internal:8000`.
 
 ## Batch aggregation (hot topics, reputation trend)
 
