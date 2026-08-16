@@ -17,13 +17,36 @@ import (
 const (
 	defaultTopByTypeLimit      = 10
 	defaultSearchLimit         = 20
-	defaultOverallTrendDays    = 30
 	defaultEntitySearchHits    = 10
 	defaultRecentArticlesLimit = 10
 	defaultRelatedEntityLimit  = 10
 )
 
 var validWindows = map[string]bool{"day": true, "week": true, "month": true, "year": true}
+
+// trendGranularity picks the "Mentions & sentiment over time" chart's
+// bucketing grain and point count for the selected trending tab (issue
+// #44). Bucketing at the tab's own grain produces charts that are either
+// meaninglessly sparse (a "day" tab has few day-grain rollups) or a
+// near-flat 1-2 point line (a "year" tab has only a couple of year-grain
+// rollups) — entity_rollups already stores all four grains every rollup
+// run, so instead each tab shows one grain finer than itself, over a
+// lookback long enough to be a real trend but short enough to stay
+// readable. "day" is special-cased: a single day has no finer grain to
+// step down to, and a solitary point isn't a trend, so it borrows a
+// week's worth of daily points instead of literally showing just today.
+func trendGranularity(window string) (grain string, limit int) {
+	switch window {
+	case "year":
+		return "month", 12
+	case "month":
+		return "week", 5
+	case "week", "day":
+		return "day", 7
+	default:
+		return "day", 7
+	}
+}
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -103,7 +126,8 @@ func (h *handlers) handleTrending(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	overall, err := h.core.OverallTrend(r.Context(), window, defaultOverallTrendDays)
+	trendGrain, trendLimit := trendGranularity(window)
+	overall, err := h.core.OverallTrend(r.Context(), trendGrain, trendLimit)
 	if err != nil {
 		log.Printf("ui: overall trend: %v", err)
 		http.Error(w, "failed to load trend", http.StatusBadGateway)
