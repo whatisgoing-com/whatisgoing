@@ -45,6 +45,7 @@ var tmpl = template.Must(template.New("ui").Parse(`
 {{define "typeBadge"}}
 {{if eq . "PERSON"}}<span class="inline-block rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">PERSON</span>
 {{else if eq . "ORG"}}<span class="inline-block rounded-full bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700">ORG</span>
+{{else if eq . "EVENT"}}<span class="inline-block rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">TOPIC</span>
 {{else}}<span class="inline-block rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">{{.}}</span>
 {{end}}
 {{end}}
@@ -133,7 +134,7 @@ var tmpl = template.Must(template.New("ui").Parse(`
 		{{template "entityRankList" .TopOrgs}}
 	</div>
 	<div class="rounded-xl border border-gray-200 bg-white p-4">
-		<h2 class="mb-1 text-sm font-semibold text-gray-700">Top events</h2>
+		<h2 class="mb-1 text-sm font-semibold text-gray-700">Top topics</h2>
 		{{template "entityRankList" .TopEvents}}
 	</div>
 </section>
