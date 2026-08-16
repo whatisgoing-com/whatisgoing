@@ -49,6 +49,16 @@ func main() {
 	mux.HandleFunc("GET /static/favicon.svg", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "/static/favicon.svg")
 	})
+	// Vendored at Docker build time (see cmd/ui/Dockerfile) rather than
+	// loaded from unpkg.com/cdn.jsdelivr.net at runtime — a slow or
+	// unreachable CDN previously broke tab-switching and left chart
+	// canvases blank with no visible error.
+	mux.HandleFunc("GET /static/htmx.min.js", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "/static/htmx.min.js")
+	})
+	mux.HandleFunc("GET /static/chart.min.js", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "/static/chart.min.js")
+	})
 
 	srv := &http.Server{Addr: ":" + port, Handler: mux}
 
