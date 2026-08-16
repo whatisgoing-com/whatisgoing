@@ -41,7 +41,18 @@ const layoutFooter = `
 </html>
 `
 
-var tmpl = template.Must(template.New("ui").Parse(`
+var tmpl = template.Must(template.New("ui").Funcs(template.FuncMap{
+	"sentimentFillPct": sentimentFillPct,
+}).Parse(`
+{{define "sentimentGauge"}}
+<span class="relative inline-block h-1.5 w-14 shrink-0 rounded-full bg-gray-100 align-middle" title="{{printf "%.2f" .}}">
+	<span class="absolute inset-y-0 left-1/2 w-px bg-gray-300"></span>
+	{{if gt . 0.0}}<span class="absolute inset-y-0 left-1/2 rounded-r-full bg-green-500" style="width: {{sentimentFillPct .}}%"></span>
+	{{else if lt . 0.0}}<span class="absolute inset-y-0 rounded-l-full bg-red-500" style="right: 50%; width: {{sentimentFillPct .}}%"></span>
+	{{end}}
+</span>
+{{end}}
+
 {{define "typeBadge"}}
 {{if eq . "PERSON"}}<span class="inline-block rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">PERSON</span>
 {{else if eq . "ORG"}}<span class="inline-block rounded-full bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700">ORG</span>
@@ -108,8 +119,8 @@ var tmpl = template.Must(template.New("ui").Parse(`
 		<div class="text-xs font-medium uppercase tracking-wide text-gray-500">Negative</div>
 	</div>
 	<div class="rounded-xl border border-gray-200 bg-white p-4 text-center">
-		<div class="text-2xl font-bold {{if gt .Sentiment.Average 0.0}}text-green-600{{else if lt .Sentiment.Average 0.0}}text-red-600{{else}}text-gray-500{{end}}">{{printf "%.2f" .Sentiment.Average}}</div>
-		<div class="text-xs font-medium uppercase tracking-wide text-gray-500">Avg sentiment</div>
+		<div class="flex justify-center">{{template "sentimentGauge" .Sentiment.Average}}</div>
+		<div class="mt-2 text-xs font-medium uppercase tracking-wide text-gray-500">Avg sentiment</div>
 	</div>
 </section>
 
@@ -189,7 +200,7 @@ var tmpl = template.Must(template.New("ui").Parse(`
 			</div>
 		</div>
 		<span class="shrink-0 text-xs font-medium tabular-nums text-gray-500">{{.MentionCount}}</span>
-		<span class="inline-block shrink-0 rounded-full px-1.5 py-0.5 text-xs font-medium tabular-nums {{if gt .SentimentScore 0.0}}bg-green-50 text-green-700{{else if lt .SentimentScore 0.0}}bg-red-50 text-red-700{{else}}bg-gray-100 text-gray-600{{end}}">{{printf "%.2f" .SentimentScore}}</span>
+		{{template "sentimentGauge" .SentimentScore}}
 	</li>
 	{{end}}
 </ol>
@@ -215,7 +226,10 @@ var tmpl = template.Must(template.New("ui").Parse(`
 	<li>
 		<div class="flex items-center justify-between text-sm">
 			<span class="font-medium text-gray-900">{{.SourceName}}</span>
-			<span class="tabular-nums {{if gt .AvgSentiment 0.0}}text-green-600{{else if lt .AvgSentiment 0.0}}text-red-600{{else}}text-gray-500{{end}}">{{.MentionCount}} &middot; {{printf "%.2f" .AvgSentiment}}</span>
+			<span class="flex items-center gap-2">
+				<span class="tabular-nums text-gray-500">{{.MentionCount}}</span>
+				{{template "sentimentGauge" .AvgSentiment}}
+			</span>
 		</div>
 		<div class="mt-1 h-1.5 w-full rounded-full bg-gray-100">
 			<div class="h-1.5 rounded-full bg-blue-500" style="width: {{.BarPercent}}%"></div>
@@ -291,7 +305,7 @@ var tmpl = template.Must(template.New("ui").Parse(`
 		<tr>
 			<td class="py-2 pr-4">{{.WindowStart}}</td>
 			<td class="py-2 pr-4 text-right tabular-nums">{{.MentionCount}}</td>
-			<td class="py-2 text-right tabular-nums {{if gt .SentimentScore 0.0}}text-green-600{{else if lt .SentimentScore 0.0}}text-red-600{{else}}text-gray-500{{end}}">{{printf "%.2f" .SentimentScore}}</td>
+			<td class="py-2 text-right">{{template "sentimentGauge" .SentimentScore}}</td>
 		</tr>
 	{{end}}
 	</tbody>
@@ -374,6 +388,21 @@ var windowTabs = []struct {
 	{"week", "This week"},
 	{"month", "This month"},
 	{"year", "This year"},
+}
+
+// sentimentFillPct converts a -1..1 sentiment score into a 0..50 fill
+// percentage for one half of the sentimentGauge template's diverging bar
+// (the other half stays empty, since the bar's center is 0, not the
+// score's own magnitude scaled across the full width).
+func sentimentFillPct(score float64) int {
+	pct := int(score * 50)
+	if pct < 0 {
+		pct = -pct
+	}
+	if pct > 50 {
+		pct = 50
+	}
+	return pct
 }
 
 func tabsFor(active string) []windowTab {
