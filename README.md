@@ -92,10 +92,12 @@ docker compose up --build
 ```
 
 - core: http://localhost:8080/healthz
-- web: http://localhost:8081
+- web: http://localhost:5173 (Vite dev server, hot-reloads on save — see below)
 - ner-sentiment: http://localhost:8000/healthz
 - Postgres: localhost:5432 (`whatisgoing`/`whatisgoing`)
 - Meilisearch: http://localhost:7700
+
+`web`'s compose service runs Vite's own dev server (source bind-mounted, `npm ci` + `vite --host` on start) rather than `web/Dockerfile` — that Dockerfile builds a static `dist/` once and serves it via nginx with no rebuild-on-change, so it's kept only for the actual CI/production image (Drone -> Harbor -> ArgoCD). Edits under `web/src` hot-reload in the browser immediately through the compose stack; no manual rebuild step.
 
 `make help` lists the day-to-day commands (`make build`, `make test-core`/`test-ui`/`test-rollup` — each mirrors one of `.drone.yml`'s Go pipelines exactly, so a local failure means CI will fail the same way — `make test-py`, `make up`/`down`, etc).
 
