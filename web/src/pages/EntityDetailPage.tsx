@@ -2,8 +2,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useEntityDetail, useRecentArticles, useRelatedEntities, useSourceBreakdown } from '../api/hooks'
 import { ApiRequestError } from '../api/client'
 import { RecentArticles } from '../components/RecentArticles'
-import { RelationGraph } from '../components/RelationGraph'
-import { SentimentGauge } from '../components/SentimentGauge'
+import { RelationBarLists } from '../components/RelationBarLists'
 import { SentimentPieChart } from '../components/SentimentPieChart'
 import { SourceBreakdown } from '../components/SourceBreakdown'
 import { TrendChart } from '../components/TrendChart'
@@ -19,7 +18,7 @@ export function EntityDetailPage() {
   const detail = useEntityDetail(id, window)
   const sources = useSourceBreakdown(id)
   const recentArticles = useRecentArticles(id)
-  const related = useRelatedEntities(id)
+  const related = useRelatedEntities(id, window)
 
   if (detail.isError) {
     const notFound = detail.error instanceof ApiRequestError && detail.error.status === 404
@@ -82,6 +81,14 @@ export function EntityDetailPage() {
         </div>
       </section>
 
+      <section className="rounded-xl border border-gray-200 bg-white p-4">
+        <div className="mb-3 flex items-baseline justify-between">
+          <h2 className="text-sm font-semibold text-gray-700">Related entities</h2>
+          <span className="text-xs text-gray-400">Bar length = shared articles in this window</span>
+        </div>
+        <RelationBarLists related={related.data ?? []} />
+      </section>
+
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <h2 className="mb-3 text-sm font-semibold text-gray-700">By source</h2>
@@ -89,40 +96,11 @@ export function EntityDetailPage() {
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <h2 className="mb-1 text-sm font-semibold text-gray-700">Recent articles</h2>
-          <RecentArticles articles={recentArticles.data ?? []} />
+          <div className="max-h-80 overflow-y-auto">
+            <RecentArticles articles={recentArticles.data ?? []} />
+          </div>
         </div>
       </section>
-
-      <section className="rounded-xl border border-gray-200 bg-white p-4">
-        <div className="mb-1 flex items-baseline justify-between">
-          <h2 className="text-sm font-semibold text-gray-700">Related entities</h2>
-          <span className="text-xs text-gray-400">Edge thickness = shared articles</span>
-        </div>
-        <RelationGraph centerName={detail.data.name} related={related.data ?? []} />
-      </section>
-
-      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white p-4">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-200 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
-              <th className="py-2 pr-4">Date</th>
-              <th className="py-2 pr-4 text-right">Mentions</th>
-              <th className="py-2 text-right">Sentiment</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {trend.map((point) => (
-              <tr key={point.window_start}>
-                <td className="py-2 pr-4">{point.window_start}</td>
-                <td className="py-2 pr-4 text-right tabular-nums">{point.mention_count}</td>
-                <td className="py-2 text-right">
-                  <SentimentGauge score={point.sentiment_score} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
     </>
   )
 }

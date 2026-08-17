@@ -63,7 +63,7 @@ export const api = {
 
   sourceBreakdown: (id: number) => getJSON<SourceBreakdown[]>(`/api/entities/${id}/sources`),
 
-  relatedEntities: (id: number, limit = 10) => getJSON<RelatedEntity[]>(`/api/entities/${id}/related`, { limit }),
+  relatedEntities: (id: number, window: Window, limit = 10) => getJSON<RelatedEntity[]>(`/api/entities/${id}/related`, { window, limit }),
 
   recentArticles: (entityId?: number, limit = 10) => getJSON<RecentArticle[]>('/api/articles/recent', { entity_id: entityId, limit }),
 }

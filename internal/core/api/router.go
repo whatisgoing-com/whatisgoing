@@ -24,7 +24,7 @@ type RollupReader interface {
 	WindowStats(ctx context.Context, window rollup.Window, windowStart, windowEnd time.Time) (rollup.WindowStats, error)
 	SourceBreakdown(ctx context.Context, entityID int64) ([]rollup.SourceBreakdown, error)
 	RecentArticles(ctx context.Context, entityID int64, limit int) ([]rollup.RecentArticle, error)
-	RelatedEntities(ctx context.Context, entityID int64, limit int) ([]rollup.RelatedEntity, error)
+	RelatedEntities(ctx context.Context, entityID int64, windowStart, windowEnd time.Time, limit int) ([]rollup.RelatedEntity, error)
 }
 
 func NewRouter(rollups RollupReader, searcher search.Searcher) http.Handler {
