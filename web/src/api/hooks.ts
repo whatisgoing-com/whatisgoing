@@ -30,8 +30,8 @@ export function useSourceBreakdown(id: number) {
   return useQuery({ queryKey: ['sourceBreakdown', id], queryFn: () => api.sourceBreakdown(id) })
 }
 
-export function useRelatedEntities(id: number) {
-  return useQuery({ queryKey: ['relatedEntities', id], queryFn: () => api.relatedEntities(id) })
+export function useRelatedEntities(id: number, window: Window) {
+  return useQuery({ queryKey: ['relatedEntities', id, window], queryFn: () => api.relatedEntities(id, window) })
 }
 
 export function useEntitySearch(query: string) {

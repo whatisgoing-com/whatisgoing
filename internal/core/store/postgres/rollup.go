@@ -338,20 +338,25 @@ func (s *RollupStore) RecentArticles(ctx context.Context, entityID int64, limit 
 }
 
 // RelatedEntities returns the entities that co-occurred most often with
-// entityID across all articles, ranked by shared-article count descending
-// — the entity detail page's "related entities" section (issue #32).
-// entity_cooccurrence rows are undirected (entity_a_id < entity_b_id by
-// constraint), so entityID can appear on either side of a given row.
-func (s *RollupStore) RelatedEntities(ctx context.Context, entityID int64, limit int) ([]rollup.RelatedEntity, error) {
+// entityID within [windowStart, windowEnd), ranked by shared-article count
+// descending — the entity detail page's "related entities" section (issue
+// #32, windowed + grouped-by-type in #62). entity_cooccurrence rows are
+// undirected (entity_a_id < entity_b_id by constraint), so entityID can
+// appear on either side of a given row. published_at falls back to
+// fetched_at, matching WindowStats, since not every source reports it.
+func (s *RollupStore) RelatedEntities(ctx context.Context, entityID int64, windowStart, windowEnd time.Time, limit int) ([]rollup.RelatedEntity, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT e.id, e.name, e.type, COALESCE(e.description, ''), COUNT(*) AS cooccurrence_count
 		FROM entity_cooccurrence c
+		JOIN articles a ON a.id = c.article_id
 		JOIN entities e ON e.id = CASE WHEN c.entity_a_id = $1 THEN c.entity_b_id ELSE c.entity_a_id END
-		WHERE c.entity_a_id = $1 OR c.entity_b_id = $1
+		WHERE (c.entity_a_id = $1 OR c.entity_b_id = $1)
+		  AND COALESCE(a.published_at, a.fetched_at) >= $2
+		  AND COALESCE(a.published_at, a.fetched_at) < $3
 		GROUP BY e.id, e.name, e.type, e.description
 		ORDER BY cooccurrence_count DESC
-		LIMIT $2`,
-		entityID, limit,
+		LIMIT $4`,
+		entityID, windowStart, windowEnd, limit,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("query related entities: %w", err)

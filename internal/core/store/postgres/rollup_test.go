@@ -629,7 +629,9 @@ func TestRollupStore_RelatedEntities_RanksByCooccurrenceCountRegardlessOfSide(t 
 		t.Fatalf("look up Elon Musk id: %v", err)
 	}
 
-	results, err := rollupStore.RelatedEntities(ctx, muskID, 10)
+	windowStart := published.Add(-time.Hour)
+	windowEnd := published.Add(24 * time.Hour)
+	results, err := rollupStore.RelatedEntities(ctx, muskID, windowStart, windowEnd, 10)
 	if err != nil {
 		t.Fatalf("RelatedEntities: %v", err)
 	}
@@ -672,12 +674,61 @@ func TestRollupStore_RelatedEntities_RespectsLimit(t *testing.T) {
 		t.Fatalf("look up Hub Corp id: %v", err)
 	}
 
-	results, err := rollupStore.RelatedEntities(ctx, hubID, 1)
+	windowStart := published.Add(-time.Hour)
+	windowEnd := published.Add(24 * time.Hour)
+	results, err := rollupStore.RelatedEntities(ctx, hubID, windowStart, windowEnd, 1)
 	if err != nil {
 		t.Fatalf("RelatedEntities: %v", err)
 	}
 	if len(results) != 1 {
 		t.Fatalf("expected limit=1 to return exactly 1 result, got %d: %+v", len(results), results)
+	}
+}
+
+func TestRollupStore_RelatedEntities_FiltersByWindow(t *testing.T) {
+	pool := testPool(t)
+	store := NewStore(pool, &fakeIndexer{})
+	rollupStore := NewRollupStore(pool)
+	ctx := context.Background()
+
+	seedSource(t, ctx, store)
+
+	inWindow := time.Date(2026, time.August, 8, 9, 0, 0, 0, time.UTC)
+	outOfWindow := time.Date(2026, time.July, 1, 9, 0, 0, 0, time.UTC)
+
+	articles := []pipeline.ArticleMentions{
+		{
+			Article: fetcher.Article{SourceID: "src-1", DedupKey: "dk-win-1", URL: "https://example.com/win1", Title: "WIN1", Content: "body", PublishedAt: inWindow},
+			Entities: []ner.Mention{
+				{Text: "Elon Musk", Type: "PERSON", SentimentScore: 0.1},
+				{Text: "Tesla", Type: "ORG", SentimentScore: 0.1},
+			},
+		},
+		{
+			Article: fetcher.Article{SourceID: "src-1", DedupKey: "dk-win-2", URL: "https://example.com/win2", Title: "WIN2", Content: "body", PublishedAt: outOfWindow},
+			Entities: []ner.Mention{
+				{Text: "Elon Musk", Type: "PERSON", SentimentScore: 0.1},
+				{Text: "SpaceX", Type: "ORG", SentimentScore: 0.1},
+			},
+		},
+	}
+	if err := store.SaveArticles(ctx, articles); err != nil {
+		t.Fatalf("SaveArticles: %v", err)
+	}
+
+	var muskID int64
+	if err := pool.QueryRow(ctx, `SELECT id FROM entities WHERE name = 'Elon Musk'`).Scan(&muskID); err != nil {
+		t.Fatalf("look up Elon Musk id: %v", err)
+	}
+
+	windowStart := inWindow.Add(-time.Hour)
+	windowEnd := inWindow.Add(time.Hour)
+	results, err := rollupStore.RelatedEntities(ctx, muskID, windowStart, windowEnd, 10)
+	if err != nil {
+		t.Fatalf("RelatedEntities: %v", err)
+	}
+	if len(results) != 1 || results[0].Name != "Tesla" {
+		t.Fatalf("expected only Tesla (in-window co-occurrence), got %+v", results)
 	}
 }
 

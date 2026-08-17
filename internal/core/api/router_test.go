@@ -89,7 +89,7 @@ func (f *fakeRollups) RecentArticles(ctx context.Context, entityID int64, limit 
 	return f.recentArticles, nil
 }
 
-func (f *fakeRollups) RelatedEntities(ctx context.Context, entityID int64, limit int) ([]rollup.RelatedEntity, error) {
+func (f *fakeRollups) RelatedEntities(ctx context.Context, entityID int64, windowStart, windowEnd time.Time, limit int) ([]rollup.RelatedEntity, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -479,6 +479,17 @@ func TestHandleRelatedEntities_RejectsNonNumericID(t *testing.T) {
 
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/entities/not-a-number/related", nil))
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.Code)
+	}
+}
+
+func TestHandleRelatedEntities_RejectsInvalidWindow(t *testing.T) {
+	router := NewRouter(&fakeRollups{}, &fakeSearcher{})
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/entities/42/related?window=decade", nil))
 
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", resp.Code)

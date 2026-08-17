@@ -2,7 +2,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useEntityDetail, useRecentArticles, useRelatedEntities, useSourceBreakdown } from '../api/hooks'
 import { ApiRequestError } from '../api/client'
 import { RecentArticles } from '../components/RecentArticles'
-import { RelationGraph } from '../components/RelationGraph'
+import { RelationBarLists } from '../components/RelationBarLists'
 import { SentimentGauge } from '../components/SentimentGauge'
 import { SentimentPieChart } from '../components/SentimentPieChart'
 import { SourceBreakdown } from '../components/SourceBreakdown'
@@ -19,7 +19,7 @@ export function EntityDetailPage() {
   const detail = useEntityDetail(id, window)
   const sources = useSourceBreakdown(id)
   const recentArticles = useRecentArticles(id)
-  const related = useRelatedEntities(id)
+  const related = useRelatedEntities(id, window)
 
   if (detail.isError) {
     const notFound = detail.error instanceof ApiRequestError && detail.error.status === 404
@@ -94,11 +94,11 @@ export function EntityDetailPage() {
       </section>
 
       <section className="rounded-xl border border-gray-200 bg-white p-4">
-        <div className="mb-1 flex items-baseline justify-between">
+        <div className="mb-3 flex items-baseline justify-between">
           <h2 className="text-sm font-semibold text-gray-700">Related entities</h2>
-          <span className="text-xs text-gray-400">Edge thickness = shared articles</span>
+          <span className="text-xs text-gray-400">Bar length = shared articles in this window</span>
         </div>
-        <RelationGraph centerName={detail.data.name} related={related.data ?? []} />
+        <RelationBarLists related={related.data ?? []} />
       </section>
 
       <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white p-4">
