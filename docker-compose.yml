@@ -51,17 +51,27 @@ services:
     # requiring a manual restart.
     restart: on-failure
 
-  # React SPA (issue #56) — a plain client-rendered app, calling core's
-  # JSON API directly from the browser rather than through a server-side
-  # BFF. VITE_CORE_API_URL is baked in at build time (see web/Dockerfile);
-  # it defaults to core's host-published port, which is what the browser
-  # can actually reach, not the docker-network-internal "core" hostname.
+  # React SPA (issue #56), run via Vite's own dev server for local dev —
+  # not web/Dockerfile, which builds a static dist/ once and serves it
+  # through nginx with no rebuild-on-change, so bind-mounting source over
+  # it wouldn't do anything. web/Dockerfile stays as the actual CI/prod
+  # build (Drone -> Harbor -> ArgoCD); this service is dev-only, real HMR.
+  # A named volume for node_modules keeps host-installed (possibly
+  # wrong-arch) node_modules from being shadowed by the bind mount.
+  # VITE_CORE_API_URL defaults to core's host-published port — that's
+  # what the browser can actually reach, not the docker-network-internal
+  # "core" hostname.
   web:
-    build:
-      context: .
-      dockerfile: web/Dockerfile
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "npm ci && npm run dev -- --host 0.0.0.0"
+    environment:
+      VITE_CORE_API_URL: http://localhost:8080
+    volumes:
+      - ./web:/app
+      - web-node-modules:/app/node_modules
     ports:
-      - "8081:80"
+      - "5173:5173"
     depends_on:
       - core
 
@@ -93,3 +103,4 @@ services:
 volumes:
   postgres-data:
   meili-data:
+  web-node-modules:
